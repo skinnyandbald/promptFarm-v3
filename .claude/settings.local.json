@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__laravel-boost__tinker",
+      "mcp__laravel-boost__get-config",
+      "mcp__laravel-boost__list-available-config-keys"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "laravel-boost",
+    "herd"
+  ]
+}
