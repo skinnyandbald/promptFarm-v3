@@ -20,6 +20,17 @@ PromptFarm v3 is an advanced AI-powered advisor generation system built on Larav
 - **Template Processing**: Advanced variable mapping and HTML comment replacement
 - **Storage Management**: Dedicated storage disk for organized advisor files
 
+### ⚠️ CRITICAL WARNING: Metadata Headers
+
+**ChatGPT and other LLMs process ALL content in uploaded files, including YAML headers and HTML comments.** This can severely degrade advisor performance. Headers like `template_type: "meta_pi"` can make ChatGPT think it's a template generator rather than the actual advisor.
+
+**Solution:** Always strip metadata headers before uploading to ChatGPT. See [Critical Header Metadata Warning](docs/critical-header-metadata-warning.md) for:
+- Why this happens (LLMs process everything, even comments)
+- How to fix it (export modes, watermarking, smart headers)
+- Implementation code for automatic stripping
+
+**Quick Fix for Users:** Remove everything between `---` markers at the top of PI/PK files before uploading to ChatGPT.
+
 ### Architecture Overview
 
 ```

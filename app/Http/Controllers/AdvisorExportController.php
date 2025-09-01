@@ -7,6 +7,7 @@ use App\Models\PlayerContext;
 use App\Services\PlayerContextService;
 use App\Services\SimpleQualityService;
 use App\Services\AdvisorGenerationService;
+use App\Services\AdvisorMetadataService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -22,7 +23,8 @@ class AdvisorExportController extends Controller
     public function __construct(
         protected PlayerContextService $playerContextService,
         protected SimpleQualityService $qualityService,
-        protected AdvisorGenerationService $generationService
+        protected AdvisorGenerationService $generationService,
+        protected AdvisorMetadataService $metadataService
     ) {}
 
     /**
@@ -34,11 +36,20 @@ class AdvisorExportController extends Controller
         
         $validated = $request->validate([
             'format' => 'in:full,condensed,instructions',
-            'include_quality' => 'boolean'
+            'include_quality' => 'boolean',
+            'strip_metadata' => 'boolean',
+            'add_watermark' => 'boolean',
+            'smart_headers' => 'boolean'
         ]);
         
         $format = $validated['format'] ?? 'full';
         $includeQuality = $validated['include_quality'] ?? false;
+        
+        // Metadata handling options
+        $stripMetadata = $validated['strip_metadata'] ?? 
+                        (app()->environment('production') ? true : false);
+        $addWatermark = $validated['add_watermark'] ?? false;
+        $smartHeaders = $validated['smart_headers'] ?? false;
         
         try {
             // Generate advisor without player context (Stage 1)
