@@ -175,10 +175,10 @@ php artisan boost:analyze
 **Step 2: Copy Meta Templates**
 ```bash
 # Copy meta templates from starter-files
-cp ~/code/promptFarm-v2/instructions-to-rebuild/starter-files/templates/meta_pi_template_v1.md \
+cp ./starter-files/templates/meta_pi_template_v1.md \
    resources/advisor-templates/meta/meta_pi_template.md
 
-cp ~/code/promptFarm-v2/instructions-to-rebuild/starter-files/templates/meta_pk_template_v1.md \
+cp ./starter-files/templates/meta_pk_template_v1.md \
    resources/advisor-templates/meta/meta_pk_template.md
 
 # Verify files copied correctly

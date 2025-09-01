@@ -725,7 +725,7 @@ export class AdvisorAPI {
 #### Development (M0)
 ```bash
 # Two separate processes
-cd promptfarm-v2 && php artisan serve --port=8000  # Laravel
+cd promptfarm-v3 && php artisan serve --port=8000  # Laravel
 ```
 
 #### Production (M2+)
