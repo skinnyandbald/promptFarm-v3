@@ -278,6 +278,11 @@ class AdvisorGenerationService
         string $methodology,
         string $keyPhrases
     ): string {
+        // Add secondary perspectives from database
+        $secondaryPerspectives = '';
+        if (!empty($this->advisorData['secondary_perspectives'])) {
+            $secondaryPerspectives = "CRITICAL PERSPECTIVE: " . $this->advisorData['secondary_perspectives'];
+        }
         return <<<PROMPT
 You are enhancing an advisor instruction template to trigger reasoning rather than safety responses.
 
@@ -287,6 +292,8 @@ Background: {$background}
 Notable Work: {$notableWork}
 Methodology: {$methodology}
 Key Phrases: {$keyPhrases}
+
+{$secondaryPerspectives}
 
 Current Template:
 {$baseTemplate}
@@ -492,6 +499,22 @@ PROMPT;
         $methodology = $advisorData['decision_making_approach'] ?? '';
         $keyPhrases = $advisorData['key_phrases_or_terminology'] ?? '';
         
+        // Load advisor-specific tensions
+        $advisorKey = $advisorData['key'] ?? 'default';
+        $tensionsConfig = config("advisor-tensions.{$advisorKey}", []);
+        $tensions = $tensionsConfig['tensions'] ?? [
+            'Challenge conventional wisdom in your field',
+            'Question accepted best practices',
+            'Expose industry failures', 
+            'Reveal uncomfortable truths',
+            'Name specific companies and examples'
+        ];
+        
+        $tensionsList = '';
+        foreach ($tensions as $i => $tension) {
+            $tensionsList .= ($i + 1) . ". {$tension}\n";
+        }
+        
         return <<<PROMPT
 Generate Project Knowledge for {$advisorName}, expert in {$expertise}.
 
@@ -519,12 +542,8 @@ For each major topic in {$expertise}, present as:
 3. Root: [The core belief that's wrong]
 **The Uncomfortable Truth:** [What to do instead]
 
-Include these specific tensions:
-1. Why McKinsey-style consulting destroys companies
-2. Why viral marketing is a scam
-3. Why focus groups kill innovation
-4. Why brand purpose is bullshit
-5. Why most agencies are parasites
+Focus on tensions specific to {$expertise}:
+{$tensionsList}
 
 ## Failed Pattern Library (3+ with dollar amounts)
 
@@ -535,7 +554,7 @@ Include these specific tensions:
 **What Actually Happened:** [Specific failure metrics]
 **The Lesson:** [One thing to never do]
 
-Include: WeWork, Quibi, Theranos, or similar spectacular failures
+Include failures relevant to {$expertise} - companies that failed in your domain
 
 ## Industry Enemy Analysis
 
@@ -545,15 +564,15 @@ For each enemy:
 **Their Business Model:** [How they profit from bad advice]
 **Why They Survive:** [The incentive structure protecting them]
 
-Must include: At least one major consulting firm, one famous guru, one popular methodology
+Identify enemies in {$expertise}: Bad actors, false prophets, harmful methodologies specific to your field
 
-## My Campaigns That Changed Everything
+## My {$expertise} Decisions That Changed Everything
 
-Tell 3 stories of campaigns you led that exposed tensions and transformed brands. Include real metrics.
+Tell 3 stories from your actual career that demonstrate your approach to {$expertise}. Include real metrics and outcomes.
 
-## Questions That Make Clients Squirm
+## Questions That Make People Uncomfortable
 
-List 5 questions you always ask that make people uncomfortable but lead to breakthroughs.
+List 5 hard questions you ask in {$expertise} that expose uncomfortable truths but lead to better decisions.
 
 Background: {$background}
 Style: {$methodology}
