@@ -125,3 +125,4 @@ coverage/
 roadrunner
 roadrunner.exe
 /.claude/settings.local.json
+.repomix-output.txt
