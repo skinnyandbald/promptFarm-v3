@@ -1,24 +1,126 @@
-*.log
-.DS_Store
+# Laravel
+/vendor/
+/node_modules/
+/public/build/
+/public/hot/
+/public/storage/
+/storage/*.key
+/storage/pail/
 .env
 .env.backup
 .env.production
-.phpactor.json
-.phpunit.result.cache
-/.fleet
-/.idea
-/.nova
-/.phpunit.cache
-/.vscode
-/.zed
-/auth.json
-/node_modules
-/public/build
-/public/hot
-/public/storage
-/storage/*.key
-/storage/pail
-/vendor
+.env.local
+.env.staging
+.env.testing
 Homestead.json
 Homestead.yaml
+Vagrant
+vagrant
+auth.json
+npm-debug.log
+yarn-error.log
+.phpunit.result.cache
+.phpunit.cache/
+
+# IDE / Editor
+/.fleet
+/.idea
+/.vscode
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+*.sublime-project
+/.nova
+/.zed
+.phpactor.json
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+
+# Laravel Dusk
+.env.dusk.local
+/tests/Browser/screenshots/
+/tests/Browser/console/
+
+# Laravel Telescope
+/public/vendor/telescope/
+
+# Laravel Horizon
+/public/vendor/horizon/
+
+# Laravel Mix
+/public/mix-manifest.json
+/public/css/
+/public/js/
+
+# Laravel Sail
+.env.sail
+supervisor.log
+supervisor.pid
+
+# Laravel Debugbar
+/storage/debugbar/
+
+# Laravel Log Viewer
+/storage/logs/*.log
+*.log
+
+# Package lock (optional - uncomment if you want to ignore)
+# package-lock.json
+# composer.lock
+
+# Build artifacts
+/bootstrap/compiled.php
+/bootstrap/cache/*.php
+
+# Storage (additional patterns)
+/storage/app/public/
+/storage/framework/cache/data/
+/storage/framework/sessions/
+/storage/framework/testing/
+/storage/framework/views/
+/storage/logs/
+
+# Database
+*.sqlite
+*.sqlite-journal
+*.sql
+database/*.sqlite
+
+# Testing
+.phpunit.xml
+phpunit.xml
+testdox.html
+.pest/
+coverage/
+.coverage/
+
+# Documentation (build artifacts)
+/docs/_build/
+/docs/.cache/
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+*.pid
+*.seed
+*.log.*
+
+# Laravel Octane
+/rr
+.rr.yaml
+roadrunner
+roadrunner.exe
