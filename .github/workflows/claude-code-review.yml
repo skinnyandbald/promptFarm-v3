@@ -1,0 +1,148 @@
+name: Claude AI Code Review
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    # Only run if @claude is mentioned or on new PRs
+    if: |
+      (github.event_name == 'pull_request') ||
+      (contains(github.event.comment.body, '@claude'))
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, xml, json, tokenizer, bcmath
+          coverage: none
+      
+      - name: Cache Composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: vendor
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
+      
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+      
+      - name: Claude AI Review
+        uses: anthropics/claude-code-review-action@v1
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: claude-3-7-sonnet-20241022
+          max-tokens: 8192
+          temperature: 0.3
+          timeout: 600
+          
+          # Review configuration
+          review-type: comprehensive
+          focus-areas: |
+            - Laravel best practices and conventions
+            - Code quality and maintainability
+            - Security vulnerabilities
+            - Performance optimizations
+            - Advisor generation logic
+            - Template processing accuracy
+            - Quality validation implementation
+            
+          # Context for Claude
+          context: |
+            This is a Laravel 12 project with an advisor generation system.
+            Key components:
+            - PI (Project Instructions) generation with template substitution + LLM enhancement
+            - PK (Project Knowledge) generation using LLM (o3-deep-research)
+            - Quality validation scoring system
+            - Template variable mapping and HTML comment processing
+            
+            Please review for:
+            1. Laravel 12 best practices
+            2. Service organization and dependency injection
+            3. Template processing logic
+            4. Quality validation accuracy
+            5. Storage configuration using advisors disk
+            6. Security and performance issues
+            
+          # Tools to enable
+          enable-suggestions: true
+          enable-code-fixes: true
+          enable-security-scan: true
+          
+          # Comment settings
+          comment-on-pr: true
+          comment-style: detailed
+          group-comments: true
+          
+          # File filters
+          include-files: |
+            app/**/*.php
+            config/*.php
+            resources/advisor-templates/*.md
+            tests/**/*.php
+            
+          exclude-files: |
+            vendor/**
+            storage/**
+            bootstrap/cache/**
+            
+      - name: Post review summary
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue_number = context.issue.number || context.payload.pull_request.number;
+            const review_status = '${{ steps.claude-review.outcome }}';
+            
+            let emoji = review_status === 'success' ? '✅' : '⚠️';
+            let status = review_status === 'success' ? 'completed' : 'needs attention';
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue_number,
+              body: `${emoji} Claude AI code review ${status}. Check the review comments above for details.`
+            });
+      
+      - name: Label PR based on review
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const labels = [];
+            const review_status = '${{ steps.claude-review.outcome }}';
+            
+            if (review_status === 'success') {
+              labels.push('claude-approved');
+            } else {
+              labels.push('needs-review');
+            }
+            
+            if (labels.length > 0) {
+              github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: labels
+              });
+            }

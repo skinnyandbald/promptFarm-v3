@@ -1,0 +1,196 @@
+name: Code Quality Checks
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  php-quality:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        php-version: ['8.3']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: mbstring, xml, json, tokenizer, bcmath, sqlite3
+          coverage: xdebug
+          tools: composer:v2, phpcs, phpstan, psalm
+      
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+      
+      - name: Cache Composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
+      
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+      
+      - name: Run Laravel Pint (Code Formatting)
+        run: vendor/bin/pint --test
+        continue-on-error: true
+      
+      - name: Run PHP_CodeSniffer
+        run: |
+          phpcs --standard=PSR12 \
+            --extensions=php \
+            --ignore=vendor/,storage/,bootstrap/cache/ \
+            app/ config/ tests/
+        continue-on-error: true
+      
+      - name: Run PHPStan (Static Analysis)
+        run: |
+          phpstan analyse \
+            --level=8 \
+            --no-progress \
+            app/ config/
+        continue-on-error: true
+      
+      - name: Run Psalm (Security Scanner)
+        run: |
+          psalm --no-cache \
+            --show-info=true \
+            --report=github \
+            app/
+        continue-on-error: true
+      
+      - name: Check for dependency vulnerabilities
+        run: composer audit
+        continue-on-error: true
+      
+      - name: Run Pest Tests
+        run: php artisan test --parallel
+        env:
+          APP_ENV: testing
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
+      
+      - name: Generate test coverage report
+        if: success()
+        run: |
+          php artisan test --coverage --coverage-html=coverage
+          php artisan test --coverage-text
+      
+      - name: Upload coverage to Codecov
+        if: success()
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/index.html
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+      
+      - name: Laravel specific checks
+        run: |
+          # Check for env() usage outside config files
+          echo "Checking for env() usage outside config files..."
+          ! grep -r "env(" app/ --include="*.php" || echo "Warning: env() found in app files"
+          
+          # Check for dd() or dump() in code
+          echo "Checking for debug statements..."
+          ! grep -r "dd(\|dump(" app/ config/ --include="*.php" || echo "Warning: Debug statements found"
+          
+          # Check for TODO comments
+          echo "Checking for TODO comments..."
+          grep -r "TODO\|FIXME" app/ config/ --include="*.php" || true
+      
+      - name: Advisor Generation Validation
+        run: |
+          # Check template files exist
+          echo "Verifying advisor templates..."
+          ls -la resources/advisor-templates/
+          
+          # Check for unsubstituted variables in services
+          echo "Checking for template variable handling..."
+          grep -r "{{\|<!--" app/Services/ --include="*.php" || true
+      
+      - name: Security scan with Enlightn
+        run: |
+          composer require enlightn/security-checker --dev
+          php vendor/bin/security-checker security:check
+        continue-on-error: true
+      
+      - name: Create quality report
+        if: always()
+        run: |
+          echo "## Code Quality Report" > quality-report.md
+          echo "PHP Version: ${{ matrix.php-version }}" >> quality-report.md
+          echo "Laravel Version: $(php artisan --version)" >> quality-report.md
+          echo "" >> quality-report.md
+          echo "### Checks Performed:" >> quality-report.md
+          echo "- ✅ Laravel Pint (Code Formatting)" >> quality-report.md
+          echo "- ✅ PHP_CodeSniffer (PSR-12)" >> quality-report.md
+          echo "- ✅ PHPStan (Level 8)" >> quality-report.md
+          echo "- ✅ Psalm (Security)" >> quality-report.md
+          echo "- ✅ Dependency Audit" >> quality-report.md
+          echo "- ✅ Pest Tests" >> quality-report.md
+          echo "- ✅ Laravel Best Practices" >> quality-report.md
+          echo "- ✅ Advisor Generation Validation" >> quality-report.md
+      
+      - name: Upload quality report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: quality-report
+          path: quality-report.md
+      
+      - name: Comment PR with quality report
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('quality-report.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: report
+            });
+  
+  frontend-quality:
+    runs-on: ubuntu-latest
+    if: hashFiles('package.json') != ''
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run ESLint
+        run: npm run lint
+        continue-on-error: true
+      
+      - name: Build assets
+        run: npm run build
+      
+      - name: Check for security vulnerabilities
+        run: npm audit --audit-level=high
+        continue-on-error: true

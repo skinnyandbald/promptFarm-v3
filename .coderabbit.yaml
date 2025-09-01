@@ -1,0 +1,195 @@
+# CodeRabbit Configuration for Laravel PHP Project
+# Optimized for Laravel 12 with advisor generation system
+
+# Review configuration
+reviews:
+  # Automatically review all pull requests
+  auto_review:
+    enabled: true
+    # Review profile: assertive, chill, or concise
+    profile: chill
+    # Include high-level summary
+    high_level_summary: true
+    # Review languages
+    review_languages:
+      - en
+
+# Static analysis tools
+tools:
+  # ESLint for JavaScript/TypeScript assets
+  eslint:
+    enabled: true
+    config_file: .eslintrc.json
+    
+  # Gitleaks for secrets detection
+  gitleaks:
+    enabled: true
+    
+  # PHP_CodeSniffer for PHP code style
+  phpcs:
+    enabled: true
+    standard: PSR12
+    
+  # PHPStan for static analysis
+  phpstan:
+    enabled: true
+    level: 6
+
+# Code guidelines
+guidelines:
+  # Reference coding standards
+  standards_file: .claude/coding_standards.md
+  
+  # Laravel-specific patterns
+  patterns:
+    # Environment variables
+    - pattern: 'env\('
+      message: 'Use config() instead of env() outside config files'
+      severity: error
+      
+    # Config usage
+    - pattern: 'Config::'
+      message: 'Use config() helper instead of Config facade'
+      severity: warning
+      
+    # Database queries
+    - pattern: 'DB::'
+      message: 'Prefer Eloquent models and relationships over raw DB queries'
+      severity: warning
+      
+    # Service organization
+    - pattern: 'app/Services/[^/]+\.php$'
+      message: 'Services should be organized in appropriate subdirectories'
+      severity: info
+      
+    # Validation
+    - pattern: '\$request->validate\('
+      message: 'Consider using Form Request classes for validation'
+      severity: warning
+
+# Laravel-specific checks
+laravel:
+  # Check for N+1 queries
+  check_n_plus_one: true
+  
+  # Verify proper middleware usage
+  check_middleware: true
+  
+  # Ensure proper API resource usage
+  check_api_resources: true
+  
+  # Validate queue job implementation
+  check_queue_jobs: true
+  
+  # Check for proper event/listener usage
+  check_events: true
+
+# Advisor generation checks
+advisor_generation:
+  # Template validation
+  check_templates: true
+  template_path: resources/advisor-templates
+  
+  # Quality thresholds
+  min_pi_quality: 75
+  min_pk_quality: 80
+  
+  # Variable substitution checks
+  check_placeholders: true
+  check_html_comments: true
+
+# Chat configuration
+chat:
+  # Auto-reply to questions
+  auto_reply:
+    enabled: true
+    # Response delay in seconds
+    delay: 2
+    # Be helpful and provide Laravel-specific guidance
+    tone: helpful
+
+# Integration options
+integrations:
+  # Link to documentation
+  docs_url: https://laravel.com/docs/12.x
+  
+  # Link to project wiki
+  wiki_url: https://github.com/yourusername/promptFarm-v3/wiki
+  
+  # Custom commands
+  commands:
+    - name: '/test'
+      description: 'Run the test suite'
+      action: 'php artisan test'
+      
+    - name: '/lint'
+      description: 'Run Laravel Pint'
+      action: 'vendor/bin/pint'
+      
+    - name: '/quality'
+      description: 'Check code quality'
+      action: 'php artisan code:quality'
+
+# Performance settings
+performance:
+  # Timeout for review (seconds)
+  timeout: 300
+  
+  # Maximum files to review
+  max_files: 100
+  
+  # Skip files matching these patterns
+  ignore_patterns:
+    - '*.min.js'
+    - '*.min.css'
+    - 'vendor/*'
+    - 'node_modules/*'
+    - 'storage/*'
+    - 'bootstrap/cache/*'
+    - '*.lock'
+    - '*.log'
+
+# Security checks
+security:
+  # Check for hardcoded secrets
+  check_secrets: true
+  
+  # Check for SQL injection vulnerabilities
+  check_sql_injection: true
+  
+  # Check for XSS vulnerabilities
+  check_xss: true
+  
+  # Check for insecure dependencies
+  check_dependencies: true
+
+# Custom review rules
+custom_rules:
+  - name: 'Advisor Template Variables'
+    description: 'Check that all template variables are properly mapped'
+    file_pattern: 'app/Services/AdvisorConfigService.php'
+    check: 'all_variables_mapped'
+    
+  - name: 'Quality Validation'
+    description: 'Ensure quality validation is applied'
+    file_pattern: 'app/Services/AdvisorGenerationService.php'
+    check: 'quality_validation_enabled'
+    
+  - name: 'Storage Disk Usage'
+    description: 'Verify advisors disk is used for storage'
+    file_pattern: 'app/Services/*.php'
+    check: 'correct_storage_disk'
+
+# Notification settings
+notifications:
+  # Notify on review completion
+  on_review_complete: true
+  
+  # Notify on critical issues
+  on_critical_issues: true
+  
+  # Slack integration (optional)
+  slack:
+    enabled: false
+    webhook_url: ''
+    channel: '#code-reviews'
