@@ -14,6 +14,7 @@ class Advisor extends Model
     protected $fillable = [
         'key',
         'name',
+        'slug',
         'full_name',
         'known_for',
         'era',
