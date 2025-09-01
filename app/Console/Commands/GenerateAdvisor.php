@@ -6,6 +6,9 @@ use Illuminate\Console\Command;
 use App\Services\AdvisorGenerationService;
 use App\Services\AdvisorConfigService;
 use App\Services\Validation\AdvisorQualityService;
+use App\Jobs\GenerateAdvisorJob;
+use App\Models\Advisor;
+use App\Models\AdvisorGenerationJob;
 use InvalidArgumentException;
 use Exception;
 use Symfony\Component\Console\Helper\ProgressBar;
@@ -13,8 +16,8 @@ use Symfony\Component\Console\Helper\Table;
 
 class GenerateAdvisor extends Command
 {
-    protected $signature = 'advisor:generate {name : The advisor key from config} {--template-version=v1 : Template version} {--show-validation : Display detailed validation feedback} {--quality-threshold= : Override quality requirements (0-100)}';
-    protected $description = 'Generate an advisor by key from database';
+    protected $signature = 'advisor:generate {name : The advisor key from config} {--template-version=v1 : Template version} {--show-validation : Display detailed validation feedback} {--quality-threshold= : Override quality requirements (0-100)} {--background : Run generation in background queue} {--poll : Poll background job status}';
+    protected $description = 'Generate an advisor by key from database (supports background processing with Redis/Horizon)';
 
     public function __construct(
         protected AdvisorGenerationService $generationService, 
@@ -28,10 +31,23 @@ class GenerateAdvisor extends Command
     {
         $name = $this->argument('name');
         $version = $this->option('template-version') ?? 'v1';
+        $background = $this->option('background');
+        $poll = $this->option('poll');
 
         $this->info("🎭 Generating advisor: {$name}");
         $this->info("📋 Using template version: {$version}");
 
+        // If polling an existing job
+        if ($poll) {
+            return $this->pollBackgroundJob($name);
+        }
+
+        // If running in background mode
+        if ($background) {
+            return $this->runInBackground($name);
+        }
+
+        // Synchronous generation (existing code)
         try {
             // Load advisor config
             $advisorData = $this->configService->getAdvisorConfig($name);
@@ -125,6 +141,140 @@ class GenerateAdvisor extends Command
         $this->newLine();
     }
     
+    /**
+     * Run advisor generation in background queue
+     */
+    protected function runInBackground(string $name): int
+    {
+        try {
+            $advisor = Advisor::where('key', $name)->first();
+            
+            if (!$advisor) {
+                $this->error("❌ Advisor not found: {$name}");
+                return Command::FAILURE;
+            }
+
+            // Create job record
+            $generationJob = AdvisorGenerationJob::create([
+                'advisor_key' => $advisor->key,
+                'status' => AdvisorGenerationJob::STATUS_PENDING,
+                'progress' => 0,
+                'current_step' => 'Queued for generation',
+            ]);
+
+            // Dispatch to queue
+            GenerateAdvisorJob::dispatch($generationJob)
+                ->onQueue(config('advisors.queue.name'));
+
+            $this->info("✅ Advisor generation job queued successfully!");
+            $this->line("📋 Job ID: {$generationJob->id}");
+            $this->line("🔄 Status: {$generationJob->status}");
+            $this->newLine();
+            
+            $this->info("To check status:");
+            $this->comment("  php artisan advisor:generate {$name} --poll");
+            $this->comment("  curl " . url("/api/advisors/jobs/{$generationJob->id}/status"));
+            $this->newLine();
+            
+            $this->info("To monitor with Horizon:");
+            $this->comment("  php artisan horizon");
+            $this->comment("  Visit: " . url('/horizon'));
+            
+            return Command::SUCCESS;
+            
+        } catch (Exception $e) {
+            $this->error("❌ Failed to queue job: " . $e->getMessage());
+            return Command::FAILURE;
+        }
+    }
+
+    /**
+     * Poll status of a background generation job
+     */
+    protected function pollBackgroundJob(string $name): int
+    {
+        try {
+            // Find the most recent job for this advisor
+            $job = AdvisorGenerationJob::where('advisor_key', $name)
+                ->recent()
+                ->first();
+            
+            if (!$job) {
+                $this->error("❌ No generation jobs found for advisor: {$name}");
+                return Command::FAILURE;
+            }
+
+            $this->info("📊 Polling job #{$job->id} for advisor: {$name}");
+            $this->newLine();
+
+            // Display initial status
+            $this->displayJobStatus($job);
+
+            // Poll until completion if still processing
+            while (in_array($job->status, [AdvisorGenerationJob::STATUS_PENDING, AdvisorGenerationJob::STATUS_PROCESSING])) {
+                sleep(config('advisors.polling.interval', 5));
+                $job->refresh();
+                
+                // Clear previous output and show updated status
+                $this->output->write("\033[2J\033[0;0H");
+                $this->info("📊 Polling job #{$job->id} for advisor: {$name}");
+                $this->newLine();
+                $this->displayJobStatus($job);
+            }
+
+            // Final status
+            if ($job->status === AdvisorGenerationJob::STATUS_COMPLETED) {
+                $this->newLine();
+                $this->info("✅ Generation completed successfully!");
+                
+                if ($job->quality_report) {
+                    $this->displayQualityScores($job->quality_report);
+                }
+                
+                return Command::SUCCESS;
+            } else {
+                $this->newLine();
+                $this->error("❌ Generation failed: {$job->error_message}");
+                return Command::FAILURE;
+            }
+            
+        } catch (Exception $e) {
+            $this->error("❌ Polling failed: " . $e->getMessage());
+            return Command::FAILURE;
+        }
+    }
+
+    /**
+     * Display current job status
+     */
+    protected function displayJobStatus(AdvisorGenerationJob $job): void
+    {
+        $statusColor = match($job->status) {
+            AdvisorGenerationJob::STATUS_PENDING => 'comment',
+            AdvisorGenerationJob::STATUS_PROCESSING => 'info',
+            AdvisorGenerationJob::STATUS_COMPLETED => 'info',
+            AdvisorGenerationJob::STATUS_FAILED => 'error',
+            default => 'line'
+        };
+
+        $this->$statusColor("Status: {$job->status}");
+        
+        if ($job->progress > 0) {
+            $bar = $this->output->createProgressBar(100);
+            $bar->setProgress($job->progress);
+            $this->newLine();
+        }
+        
+        if ($job->current_step) {
+            $this->line("Current Step: {$job->current_step}");
+        }
+        
+        if ($job->started_at) {
+            $duration = $job->started_at->diffForHumans(null, true);
+            $this->line("Duration: {$duration}");
+        }
+    }
+
     /**
      * Display detailed validation feedback
      */

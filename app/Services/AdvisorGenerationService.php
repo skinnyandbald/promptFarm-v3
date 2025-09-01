@@ -18,13 +18,28 @@ class AdvisorGenerationService
 
     /**
      * Generate a complete advisor with PI and PK components
+     * @param array|\App\Models\Advisor $advisorData Advisor data array or model
+     * @param ?string $version Template version
+     * @param ?callable $progressCallback Optional callback for progress updates
      */
-    public function generateAdvisor(array $advisorData, ?string $version = 'v1'): array
+    public function generateAdvisor($advisorData, $version = 'v1', ?callable $progressCallback = null): array
     {
+        // Handle Advisor model if passed
+        if ($advisorData instanceof \App\Models\Advisor) {
+            $advisor = $advisorData;
+            $advisorData = $advisor->toArray();
+            $advisorData['key'] = $advisor->key;
+        }
+
         Log::info('Starting advisor generation', [
             'advisor_name' => $advisorData['name'] ?? 'unknown',
             'version' => $version
         ]);
+        
+        // Report initial progress
+        if ($progressCallback) {
+            $progressCallback(0, 'Starting advisor generation');
+        }
         
         try {
             // Prepare directory structure using the advisors disk
@@ -34,6 +49,9 @@ class AdvisorGenerationService
             Storage::disk('advisors')->makeDirectory($basePath);
             
             // Generate PI content
+            if ($progressCallback) {
+                $progressCallback(25, 'Generating PI (Project Instructions)');
+            }
             $piContent = $this->generatePI($advisorData, $version);
             
             // Score PI quality
@@ -50,6 +68,9 @@ class AdvisorGenerationService
             Log::info('PI saved', ['path' => $piPath, 'size' => strlen($piContent)]);
             
             // Generate PK content
+            if ($progressCallback) {
+                $progressCallback(50, 'Generating PK (Project Knowledge)');
+            }
             $pkContent = $this->generatePK($advisorData, $version);
             
             // Score PK quality
@@ -66,6 +87,9 @@ class AdvisorGenerationService
             Log::info('PK saved', ['path' => $pkPath, 'size' => strlen($pkContent)]);
             
             // Get overall quality report
+            if ($progressCallback) {
+                $progressCallback(75, 'Validating quality and preparing files');
+            }
             $qualityReport = $this->qualityService->getValidationReport($piScore, $pkScore);
             
             // Save metadata with quality scores
@@ -95,6 +119,11 @@ class AdvisorGenerationService
                 'advisor_name' => $advisorData['name'],
                 'files' => $savedFiles
             ]);
+            
+            // Report completion
+            if ($progressCallback) {
+                $progressCallback(100, 'Generation completed successfully');
+            }
             
             return [
                 'success' => true,
