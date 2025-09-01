@@ -28,7 +28,7 @@ class AdvisorGenerationService
         
         try {
             // Prepare directory structure using the advisors disk
-            $advisorName = $advisorData['fullName'] ?? $advisorData['name'] ?? 'Unknown';
+            $advisorName = $advisorData['full_name'] ?? $advisorData['fullName'] ?? $advisorData['name'] ?? 'Unknown';
             $sanitizedName = Str::slug($advisorName);
             $basePath = $sanitizedName;
             Storage::disk('advisors')->makeDirectory($basePath);
@@ -186,7 +186,7 @@ class AdvisorGenerationService
         ]);
         
         // Extract key information for personalization
-        $advisorName = $advisorData['fullName'] ?? $advisorData['name'] ?? 'Unknown Advisor';
+        $advisorName = $advisorData['full_name'] ?? $advisorData['fullName'] ?? $advisorData['name'] ?? 'Unknown Advisor';
         $expertise = $advisorData['core_expertise_area'] ?? $advisorData['expertise_area'] ?? '';
         $background = $advisorData['background_description'] ?? $advisorData['background'] ?? '';
         $notableWork = $advisorData['notable_achievements'] ?? '';
@@ -321,12 +321,12 @@ PROMPT;
             $advisorData
         );
 
-        // PK MUST use LLM with o3-deep-research model
-        $model = config('services.openai.pk_model', 'o3-deep-research');
+        // PK generation using configured model
+        $model = config('services.openai.pk_model', 'gpt-4o');
         $generatedContent = $this->llmService->generateText($prompt, [
             'model' => $model,
             'temperature' => 0.7,
-            'max_tokens' => 50000
+            'max_tokens' => (int) config('services.openai.max_tokens', 8000)
         ]);
 
         $cleanedContent = $this->validateAndCleanContent($generatedContent, 'PK');

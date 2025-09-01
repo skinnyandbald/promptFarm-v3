@@ -37,10 +37,10 @@ return [
 
     'openai' => [
         'api_key' => env('OPENAI_API_KEY'),
-        'model' => env('OPENAI_MODEL', 'o3-deep-research'),
-        'pk_model' => env('PK_GENERATION_MODEL', 'o3-deep-research'),
+        'model' => env('OPENAI_MODEL', 'gpt-4o'),
+        'pk_model' => env('PK_GENERATION_MODEL', 'gpt-4o'),
         'pi_enhancement_model' => env('PI_ENHANCEMENT_MODEL', 'gpt-4o-mini'),
-        'max_tokens' => env('OPENAI_MAX_TOKENS', 100000),
+        'max_tokens' => env('OPENAI_MAX_TOKENS', 8000),
         'timeout' => env('OPENAI_TIMEOUT', 300),
         'temperature' => env('OPENAI_TEMPERATURE', 0.7),
         'organization' => env('OPENAI_ORGANIZATION'),

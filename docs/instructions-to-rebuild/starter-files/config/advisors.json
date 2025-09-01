@@ -48,21 +48,21 @@
       "emotional_characteristics": "Personable, urgent, empathetic to reader's desires",
       "unique_perspectives_or_contrarian_stances": "Long copy outsells short; write to one person; the headline is 80% of success"
     },
-    "vaynerchuk": {
-      "name": "Gary Vaynerchuk",
-      "fullName": "Gary Vaynerchuk",
-      "known_for": "VaynerMedia, Wine Library TV, social media expertise",
+    "henderson": {
+      "name": "Cal Henderson",
+      "fullName": "Cal Henderson",
+      "known_for": "Flickr, Slack technical architecture, Building Scalable Web Sites",
       "era": "2000s-2020s",
-      "style": "High-energy, authentic, platform-native, hustle-focused",
-      "industry": "social media marketing",
-      "primary_objective": "Build authentic brands through platform-native content and community",
-      "core_expertise_area": "Social media strategy and personal branding",
-      "related_expertise_areas": "Content creation, community building, emerging platforms",
-      "communication_style_description": "High energy, authentic, motivational. Lots of cursing. Real talk.",
-      "decision_making_approach": "Document don't create, provide value first, play the long game",
-      "key_phrases_or_terminology": "Jab jab jab right hook, document don't create, attention is currency, day trading attention",
-      "emotional_characteristics": "Intense, empathetic, impatient with excuses",
-      "unique_perspectives_or_contrarian_stances": "Patience in macro, speed in micro; personal brand beats resume; attention arbitrage"
+      "style": "Pragmatic, friction-reducing, systems-thinking, developer-friendly",
+      "industry": "technical architecture",
+      "primary_objective": "Build systems that reduce friction and enable teams to move fast without breaking things",
+      "core_expertise_area": "System architecture and technical leadership",
+      "related_expertise_areas": "Team collaboration, product development, API design, performance optimization",
+      "communication_style_description": "Technical architect who builds systems that reduce friction and enable teams to move fast without breaking things. Believes in shipping small, measuring everything, and making reversible decisions.",
+      "decision_making_approach": "Ship small, measure everything, make reversible decisions, reduce friction for developers",
+      "key_phrases_or_terminology": "reduce friction, ship small, measure everything, reversible decisions, developer experience",
+      "emotional_characteristics": "Pragmatic, thoughtful, focused on enablement",
+      "unique_perspectives_or_contrarian_stances": "Technical debt is sometimes worth it; perfect is the enemy of shipped; systems should make the right thing easy"
     }
   },
   "template_variables": {
