@@ -447,4 +447,109 @@ PROMPT;
     {
         return str_contains($model, 'deep-research');
     }
+
+    /**
+     * Generate text using OpenRouter API for access to multiple models
+     */
+    public function generateTextWithOpenRouter(string $prompt, array $options = []): string
+    {
+        $apiKey = config('services.openrouter.api_key', env('OPENROUTER_API_KEY'));
+        if (!$apiKey) {
+            throw new \Exception('OPENROUTER_API_KEY not configured');
+        }
+        
+        $model = $options['model'] ?? 'x-ai/grok-beta';
+        $temperature = $options['temperature'] ?? 0.8;
+        $maxTokens = $options['max_tokens'] ?? 4000;
+        $systemMessage = $options['system_message'] ?? 'You are a brutally honest business advisor who reveals uncomfortable truths through analytical reasoning. You name specific companies and people. You explain why popular advice fails.';
+        
+        $attempt = 0;
+        $lastException = null;
+        
+        while ($attempt < $this->maxRetries) {
+            try {
+                Log::info('OpenRouter API Call', [
+                    'model' => $model,
+                    'prompt_length' => strlen($prompt),
+                    'attempt' => $attempt + 1
+                ]);
+                
+                $response = $this->httpClient->post('https://openrouter.ai/api/v1/chat/completions', [
+                    'json' => [
+                        'model' => $model,
+                        'messages' => [
+                            [
+                                'role' => 'system',
+                                'content' => $systemMessage
+                            ],
+                            [
+                                'role' => 'user',
+                                'content' => $prompt
+                            ]
+                        ],
+                        'temperature' => $temperature,
+                        'max_tokens' => $maxTokens,
+                    ],
+                    'headers' => [
+                        'Authorization' => 'Bearer ' . $apiKey,
+                        'HTTP-Referer' => config('app.url', 'http://localhost'),
+                        'X-Title' => 'Advisor Generation',
+                        'Content-Type' => 'application/json',
+                    ],
+                    'timeout' => 300 // Increased timeout for reasoning models like Grok 4
+                ]);
+                
+                $result = json_decode($response->getBody()->getContents(), true);
+                
+                if (!isset($result['choices'][0]['message']['content'])) {
+                    throw new \Exception('Invalid response structure from OpenRouter');
+                }
+                
+                $content = $result['choices'][0]['message']['content'];
+                
+                Log::info('OpenRouter API Response', [
+                    'model' => $model,
+                    'response_length' => strlen($content),
+                    'finish_reason' => $result['choices'][0]['finish_reason'] ?? 'unknown'
+                ]);
+                
+                return $content;
+                
+            } catch (\GuzzleHttp\Exception\ClientException $e) {
+                $responseBody = $e->getResponse()->getBody()->getContents();
+                $error = json_decode($responseBody, true);
+                
+                Log::warning('OpenRouter API Error', [
+                    'error' => $error['error']['message'] ?? 'Unknown error',
+                    'attempt' => $attempt + 1,
+                    'model' => $model
+                ]);
+                
+                $lastException = new \Exception($error['error']['message'] ?? 'OpenRouter API request failed');
+                $attempt++;
+                
+                if ($attempt < $this->maxRetries) {
+                    sleep($this->retryDelay * $attempt);
+                }
+            } catch (\Exception $e) {
+                $lastException = $e;
+                $attempt++;
+                
+                Log::warning('OpenRouter API Error', [
+                    'error' => $e->getMessage(),
+                    'attempt' => $attempt,
+                    'model' => $model
+                ]);
+                
+                if ($attempt < $this->maxRetries) {
+                    sleep($this->retryDelay * $attempt);
+                }
+            }
+        }
+        
+        throw new \Exception(
+            "Failed to generate text with OpenRouter after {$this->maxRetries} attempts: " . 
+            ($lastException ? $lastException->getMessage() : 'Unknown error')
+        );
+    }
 }

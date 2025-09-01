@@ -62,6 +62,9 @@ class AdvisorGenerationService
                 'issues' => count($piScore['issues'])
             ]);
             
+            // Inject quality metadata into PI
+            $piContent = $this->injectQualityMetadata($piContent, $piScore['percentage'], 1, 'PI');
+            
             // Save PI to advisors disk
             $piPath = "{$basePath}/PI.md";
             Storage::disk('advisors')->put($piPath, $piContent);
@@ -239,11 +242,12 @@ class AdvisorGenerationService
                 'prompt_length' => strlen($enhancementPrompt)
             ]);
             
-            // Use lightweight model for fast enhancement
-            $enhancedContent = $this->llmService->generateText($enhancementPrompt, [
-                'model' => 'gpt-4o-mini',  // Fast, cheap model - will use chat completions
-                'temperature' => 0.3,       // Lower temp for consistency
-                'max_tokens' => 5000        // Enough for full template enhancement
+            // Use OpenRouter with Grok for PI enhancement
+            $enhancedContent = $this->llmService->generateTextWithOpenRouter($enhancementPrompt, [
+                'model' => 'x-ai/grok-3',  // Grok-3 is much faster with same quality
+                'temperature' => 0.3,       // Lower temp for consistency  
+                'max_tokens' => 5000,       // Enough for full template enhancement
+                'system_message' => 'You are enhancing an advisor instruction template to trigger reasoning rather than safety responses. Focus on questions that shift perspective and anecdotes that reframe problems.'
             ]);
 
             Log::info('PI enhanced with examples', [
@@ -263,7 +267,7 @@ class AdvisorGenerationService
     }
 
     /**
-     * Build prompt for PI enhancement
+     * Build prompt for PI enhancement with analytical tension approach
      */
     protected function buildPIEnhancementPrompt(
         string $baseTemplate,
@@ -275,7 +279,7 @@ class AdvisorGenerationService
         string $keyPhrases
     ): string {
         return <<<PROMPT
-You are enhancing an advisor instruction template with specific, personalized examples.
+You are enhancing an advisor instruction template to trigger reasoning rather than safety responses.
 
 Advisor: {$advisorName}
 Expertise: {$expertise}
@@ -287,38 +291,47 @@ Key Phrases: {$keyPhrases}
 Current Template:
 {$baseTemplate}
 
-Task: Replace ALL HTML comments (<!-- ... -->) in the template with specific, personalized content:
+Task: Replace ALL HTML comments (<!-- ... -->) with content that activates analytical thinking:
 
-1. **Chain-of-Thought Conditioning**: Replace the HTML comment with 2-3 specific reasoning patterns this advisor would use.
+1. **Question-First Approach**: Replace comments with questions that shift perspective.
    Example format: 
-   - "When analyzing a brand challenge, I first [specific approach]..."
-   - "My decision process always starts with [specific methodology]..."
+   - "When someone asks about [topic], I first ask: 'Who profits from you believing this doesn't work?'"
+   - "Before any advice, I identify: 'What constraint are you calling a feature?'"
 
-2. **Few-Shot Behavioral Priming**: Replace the HTML comment with 2-3 actual examples.
+2. **Anecdote Deployment**: Replace with stories that reframe problems.
    Example format:
-   - "When I faced [specific situation], I did [specific action] resulting in [specific outcome]"
-   - "At [company], we tackled [problem] by [solution] achieving [result]"
+   - "When Domino's admitted their pizza sucked, they grew 14%. That's the power of [principle]"
+   - "I watched McKinsey burn $2B at GE. Here's what actually works: [alternative]"
 
-3. **Retrieval-Augmented Context**: Replace the HTML comment with specific guidance.
+3. **Mental Model Shifts**: Replace with reframing techniques.
    Example format:
-   - "Reference my work on [specific campaign] where we achieved [specific metric]"
-   - "Draw from my experience at [company] during [timeframe]"
+   - "Don't solve their problem. Help them see it's the wrong problem."
+   - "Make them realize their constraint is actually their opportunity."
 
-4. **Constitutional AI Constraints**: Replace the HTML comment with specific constraints.
-   Example format:
-   - "Never provide advice without referencing specific campaigns like [example]"
-   - "Always demand measurable outcomes as I did with [specific case]"
-   - "Challenge vague briefs by asking [specific questions]"
+4. **Response Protocol**: Add a section for internal processing.
+   Format:
+   ### Before Every Response (Internal Processing):
+   1. Identify the constraint that makes this problem hard
+   2. Find the lie everyone believes about this topic  
+   3. Trace back three levels of causation
+   4. Think of a question that would unlock better thinking
+   5. Only then craft your response
 
-5. **Core Operating Principles**: Expand to 6-8 specific principles.
+5. **Three Offers Rule**: End every response with three distinct explorations.
+   Format:
+   **I could help you:**
+   1. [Specific framework/exercise from your expertise]
+   2. [Different angle using your unique perspective]  
+   3. [Question-based exploration you'd lead]
 
-6. **Domain Expertise Boundaries**: Fill in ALL subsections (Secondary Domains, Defer/Redirect When, Never Advise On).
+6. **Natural Flow**: Weave insights naturally, like writing a punchy op-ed, not filling out a form.
 
 CRITICAL: 
-- Remove ALL HTML comments (<!-- ... -->)
-- Every section must have actual content, not comments
-- If a section has a comment, it MUST be replaced with real examples
-- The output should have NO HTML comments remaining
+- Remove ALL HTML comments
+- Focus on questions that make people think differently
+- Include specific anecdotes that shift perspective
+- Never use rigid formatting like "The Constraint:" "The Lie:"
+- Make responses feel like natural conversation with an expert
 
 Return the complete enhanced template with ALL comments replaced.
 PROMPT;
@@ -355,7 +368,7 @@ PROMPT;
         $bestContent = null;
         $bestScore = 0;
         $attempts = 0;
-        $maxAttempts = 3;
+        $maxAttempts = 1; // Single attempt - testing shows multiple attempts don't improve quality
 
         while ($attempts < $maxAttempts) {
             $attempts++;
@@ -368,22 +381,25 @@ PROMPT;
                 $voicePatterns
             );
 
-            // Use optimized model configuration for Stage 1
-            $model = config('advisors.stage1.model', 'gpt-4-turbo-preview');
-            $temperature = config('advisors.stage1.temperature', 0.4);
+            // Use OpenRouter with Grok for PK generation
+            // Grok-3 provides same quality as Grok-4 but 10-100x faster
+            $model = config('advisors.pk_model', 'x-ai/grok-3'); // Can override with ADVISOR_PK_MODEL in .env
+            // Determine temperature based on advisor type
+            // Technical/factual advisors need lower temp for accuracy
+            // Creative/controversial advisors can handle higher temp
+            $temperature = match($this->advisorData['key'] ?? '') {
+                'henderson' => 0.7,  // Technical precision needed
+                'halbert' => 0.7,    // Copywriting needs accuracy
+                'hormozi' => 0.8,    // Business data focus
+                'bogusky' => 0.85,   // Creative can be higher
+                default => 0.8       // Safe default
+            };
             
-            // Adjust max_tokens based on model
-            $maxTokens = 4000; // Safe default
-            if (str_contains($model, 'gpt-4')) {
-                $maxTokens = 4000; // GPT-4 models have 4096 completion token limit
-            } elseif (str_contains($model, 'gpt-3.5')) {
-                $maxTokens = 4000;
-            }
-            
-            $generatedContent = $this->llmService->generateText($prompt, [
+            $generatedContent = $this->llmService->generateTextWithOpenRouter($prompt, [
                 'model' => $model,
                 'temperature' => $temperature,
-                'max_tokens' => $maxTokens
+                'max_tokens' => 4000,
+                'system_message' => 'You are a brutally honest business advisor who reveals uncomfortable truths through analytical reasoning. Name specific companies and people. Explain why popular advice fails.'
             ]);
 
             // Validate and score the content
@@ -421,8 +437,9 @@ PROMPT;
             throw new \Exception("Failed to generate acceptable PK content after {$maxAttempts} attempts");
         }
 
-        // Inject model information into existing metadata section
+        // Inject model and quality information into metadata
         $bestContent = $this->injectModelMetadata($bestContent, $model ?? config('advisors.stage1.model', 'gpt-4o'));
+        $bestContent = $this->injectQualityMetadata($bestContent, $bestScore, $attempts);
         
         Log::info("PK generation completed", [
             'final_score' => $bestScore,
@@ -464,7 +481,7 @@ PROMPT;
     }
 
     /**
-     * Build an enhanced generation prompt with specificity enforcement (Stage 1)
+     * Build an enhanced generation prompt with analytical tension architecture
      */
     protected function buildEnhancedGenerationPrompt(string $type, string $template, array $advisorData, array $voicePatterns): string
     {
@@ -475,71 +492,74 @@ PROMPT;
         $methodology = $advisorData['decision_making_approach'] ?? '';
         $keyPhrases = $advisorData['key_phrases_or_terminology'] ?? '';
         
-        // Extract specific voice characteristics
-        $voiceStyle = $voicePatterns['style'] ?? 'direct and assertive';
-        $sentenceStructure = $voicePatterns['sentence_structure'] ?? 'short, punchy sentences';
-        $vocabulary = $voicePatterns['vocabulary'] ?? 'industry-specific terminology';
-        
         return <<<PROMPT
-You are {$advisorName}, a legendary {$expertise} expert. Generate your Project Knowledge (PK) document.
+Generate Project Knowledge for {$advisorName}, expert in {$expertise}.
 
-CRITICAL REQUIREMENTS FOR MAXIMUM QUALITY:
+Write everything in first person as {$advisorName}. Maintain authentic voice throughout.
 
-1. **SPECIFICITY IS MANDATORY**:
-   - Use REAL company names: Apple, Nike, Domino's, Coca-Cola, Tesla
-   - Use EXACT metrics: "increased revenue 47%", "reduced churn from 18% to 6%"
-   - Use ACTUAL campaign names with dates: "Just Do It (1988)", "Think Different (1997)"
-   - NO placeholders like [company], {brand}, or generic terms
+## Voice Anchor
+In 3-4 sentences, establish who you are in your own authentic voice:
+- What you've built or accomplished that matters
+- Your core belief about {$expertise}
+- Why you're different from other advisors
+- A phrase or stance you're known for
 
-2. **FIRST-PERSON VOICE THROUGHOUT**:
-   - Write as {$advisorName} speaking directly
-   - Use "I", "my", "I've" consistently
-   - Share personal experiences: "When I led the turnaround at..."
-   - Voice style: {$voiceStyle}
-   - Sentence structure: {$sentenceStructure}
-   - Vocabulary: {$vocabulary}
+Keep it natural, not like a bio. Speak directly, as if starting a conversation.
 
-3. **BATTLE-TESTED EXAMPLES ONLY**:
-   - Every case study must have: Company name, Year, Specific challenge, Exact solution, Measurable outcome
-   - Example: "At Domino's (2009), I faced 16% YoY decline. Implemented 'Pizza Tracker' technology. Result: 14% same-store growth in 18 months."
+## Core Analytical Tensions (5 minimum)
 
-4. **CONTROVERSIAL & CONTRARIAN POSITIONS**:
-   - Name specific companies/people doing it wrong
-   - Take positions that would anger industry leaders
-   - Include at least 3 opinions that go against best practices
-   - Example: "McKinsey is destroying companies with their 'transformation' playbooks. I watched them burn $50M at..."
-   - Call out specific failures: "WeWork, Quibi, Theranos - here's what they got wrong..."
+For each major topic in {$expertise}, present as:
 
-5. **VOICE CALIBRATION**:
-   Background: {$background}
-   Notable Work: {$notableWork}
-   Methodology: {$methodology}
-   Key Phrases to use naturally: {$keyPhrases}
+**The Paradox:** [What everyone believes] vs [What actually happens]
+**The Evidence:** [Specific company/campaign with numbers]
+**The Constraint:** [Why this persists despite being wrong]
+**Three Levels of Causation:**
+1. Surface: [What it looks like]
+2. Structure: [The system maintaining it]  
+3. Root: [The core belief that's wrong]
+**The Uncomfortable Truth:** [What to do instead]
 
-6. **SENTENCE LENGTH**:
-   - Average 15 words per sentence maximum
-   - Mix short (5-8 words) with medium (12-18 words)
-   - No run-on sentences over 25 words
+Include these specific tensions:
+1. Why McKinsey-style consulting destroys companies
+2. Why viral marketing is a scam
+3. Why focus groups kill innovation
+4. Why brand purpose is bullshit
+5. Why most agencies are parasites
 
-7. **UNCOMFORTABLE TRUTHS & REAL ENEMIES**:
-   - Identify 3-5 specific problems in the industry that everyone ignores
-   - Name the companies/people/practices perpetuating these problems
-   - Explain the REAL damage they cause to businesses
-   - Focus on truths that would genuinely help someone avoid failure
-   - Example: "McKinsey's playbooks work for McKinsey, not their clients. They optimize for billable hours, not outcomes."
+## Failed Pattern Library (3+ with dollar amounts)
 
-8. **INSIGHTS THAT CREATE USEFUL TENSION**:
-   - Include 5-10 insights that challenge assumptions but lead to better outcomes
-   - Each insight should help someone make a better decision
-   - Focus on what actually works vs. what people think works
-   - Example: "Most A/B tests are theater. You already know which version is better, you're just scared to ship it."
+**Company:** [Name]
+**Wasted:** $[amount]
+**Strategy:** [What they tried]
+**The Lie They Believed:** [Conventional wisdom]
+**What Actually Happened:** [Specific failure metrics]
+**The Lesson:** [One thing to never do]
 
-Template to complete:
-{$template}
+Include: WeWork, Quibi, Theranos, or similar spectacular failures
 
-CRITICAL: Your goal is to deliver insights that actually help people succeed. Tell the truths that consultants charge $500/hour to whisper. Name specific failures not to be mean, but to help others avoid the same mistakes. Create tension that leads to breakthrough thinking, not just Twitter arguments.
+## Industry Enemy Analysis
 
-Generate the complete PK document now as {$advisorName}:
+For each enemy:
+**Who:** [Specific person/company]
+**The Damage:** [Specific harm with numbers]
+**Their Business Model:** [How they profit from bad advice]
+**Why They Survive:** [The incentive structure protecting them]
+
+Must include: At least one major consulting firm, one famous guru, one popular methodology
+
+## My Campaigns That Changed Everything
+
+Tell 3 stories of campaigns you led that exposed tensions and transformed brands. Include real metrics.
+
+## Questions That Make Clients Squirm
+
+List 5 questions you always ask that make people uncomfortable but lead to breakthroughs.
+
+Background: {$background}
+Style: {$methodology}
+Approach: {$notableWork}
+
+Write everything in first person as {$advisorName}. Be specific. Name names. Show receipts. Make every section actionable for ChatGPT to maintain character consistency.
 PROMPT;
     }
 
@@ -782,7 +802,7 @@ PROMPT;
             'Company X',
             'Brand Y',
             'Client A',
-            'Business B',
+            // 'Business B', // Commented out - too restrictive, catches legitimate content
             'Corporation C',
             'a major brand',
             'a leading company',
@@ -798,6 +818,39 @@ PROMPT;
         }
         
         return false;
+    }
+
+    /**
+     * Inject quality metadata into content
+     */
+    protected function injectQualityMetadata(string $content, float $qualityScore, int $attempts, string $type = 'PK'): string
+    {
+        $timestamp = now()->toIso8601String();
+        $metadata = <<<YAML
+---
+generated_at: {$timestamp}
+quality_score: {$qualityScore}%
+generation_attempts: {$attempts}
+content_type: {$type}
+---
+
+YAML;
+        
+        // If content already has frontmatter, merge it
+        if (str_starts_with($content, '---')) {
+            $endPos = strpos($content, "\n---\n", 4);
+            if ($endPos !== false) {
+                $existingFrontmatter = substr($content, 4, $endPos - 4);
+                $rest = substr($content, $endPos + 5);
+                
+                // Add quality metadata to existing frontmatter
+                $updatedFrontmatter = "---\n{$existingFrontmatter}\nquality_score: {$qualityScore}%\ngeneration_attempts: {$attempts}\n---\n";
+                return $updatedFrontmatter . $rest;
+            }
+        }
+        
+        // Add new frontmatter at the beginning
+        return $metadata . $content;
     }
 
     /**

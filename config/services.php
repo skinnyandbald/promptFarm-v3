@@ -49,6 +49,10 @@ return [
     'xai' => [
         'api_key' => env('XAI_API_KEY'),
     ],
+    
+    'openrouter' => [
+        'api_key' => env('OPENROUTER_API_KEY'),
+    ],
 
     'advisor' => [
         'pi_quality_threshold' => env('ADVISOR_PI_QUALITY_THRESHOLD', 75),
