@@ -348,7 +348,7 @@ class AdvisorQualityService
     /**
      * Check first-person voice usage
      */
-    protected function checkFirstPersonVoice(string $content): bool
+    protected function checkFirstPersonVoice(string $content): array
     {
         $violations = 0;
         

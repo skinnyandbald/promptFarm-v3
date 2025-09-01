@@ -14,7 +14,7 @@ use Symfony\Component\Console\Helper\Table;
 class GenerateAdvisor extends Command
 {
     protected $signature = 'advisor:generate {name : The advisor key from config} {--template-version=v1 : Template version} {--show-validation : Display detailed validation feedback} {--quality-threshold= : Override quality requirements (0-100)}';
-    protected $description = 'Generate an advisor by key from advisors.json config';
+    protected $description = 'Generate an advisor by key from database';
 
     public function __construct(
         protected AdvisorGenerationService $generationService, 
@@ -37,7 +37,7 @@ class GenerateAdvisor extends Command
             $advisorData = $this->configService->getAdvisorConfig($name);
             $advisorData['key'] = $name; // Add key for generation service
             
-            $this->line("✓ Loaded configuration for {$advisorData['fullName']}");
+            $this->line("✓ Loaded configuration for {$advisorData['full_name']}");
 
             // Progress bar for generation steps
             $progressBar = $this->output->createProgressBar(4);
@@ -100,7 +100,7 @@ class GenerateAdvisor extends Command
             $advisors = $this->configService->allAdvisors();
             foreach (array_keys($advisors) as $key) {
                 $config = $advisors[$key];
-                $this->line("  - {$key} ({$config['fullName']})");
+                $this->line("  - {$key} ({$config['full_name']})");
             }
             return Command::FAILURE;
             
