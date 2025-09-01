@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Validation\AdvisorQualityService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -11,7 +12,8 @@ class AdvisorGenerationService
     public function __construct(
         protected TemplateService $templateService,
         protected LLMService $llmService,
-        protected AdvisorConfigService $configService
+        protected AdvisorConfigService $configService,
+        protected AdvisorQualityService $qualityService
     ) {}
 
     /**
@@ -25,25 +27,48 @@ class AdvisorGenerationService
         ]);
         
         try {
-            // Prepare directory structure first
+            // Prepare directory structure using the advisors disk
             $advisorName = $advisorData['fullName'] ?? $advisorData['name'] ?? 'Unknown';
             $sanitizedName = Str::slug($advisorName);
-            $basePath = "advisors/{$sanitizedName}";
-            Storage::makeDirectory($basePath);
+            $basePath = $sanitizedName;
+            Storage::disk('advisors')->makeDirectory($basePath);
             
-            // Generate and save PI immediately
+            // Generate PI content
             $piContent = $this->generatePI($advisorData, $version);
+            
+            // Score PI quality
+            $piScore = $this->qualityService->scorePI($piContent);
+            Log::info('PI quality score', [
+                'score' => $piScore['percentage'],
+                'valid' => $piScore['valid'],
+                'issues' => count($piScore['issues'])
+            ]);
+            
+            // Save PI to advisors disk
             $piPath = "{$basePath}/PI.md";
-            Storage::put($piPath, $piContent);
+            Storage::disk('advisors')->put($piPath, $piContent);
             Log::info('PI saved', ['path' => $piPath, 'size' => strlen($piContent)]);
             
-            // Generate and save PK immediately
+            // Generate PK content
             $pkContent = $this->generatePK($advisorData, $version);
+            
+            // Score PK quality
+            $pkScore = $this->qualityService->scorePK($pkContent);
+            Log::info('PK quality score', [
+                'score' => $pkScore['percentage'],
+                'valid' => $pkScore['valid'],
+                'issues' => count($pkScore['issues'])
+            ]);
+            
+            // Save PK to advisors disk
             $pkPath = "{$basePath}/PK.md";
-            Storage::put($pkPath, $pkContent);
+            Storage::disk('advisors')->put($pkPath, $pkContent);
             Log::info('PK saved', ['path' => $pkPath, 'size' => strlen($pkContent)]);
             
-            // Save metadata
+            // Get overall quality report
+            $qualityReport = $this->qualityService->getValidationReport($piScore, $pkScore);
+            
+            // Save metadata with quality scores
             $metadataPath = "{$basePath}/metadata.json";
             $metadata = [
                 'name' => $advisorName,
@@ -53,10 +78,11 @@ class AdvisorGenerationService
                 'pk_file' => $pkPath,
                 'pi_size' => strlen($piContent),
                 'pk_size' => strlen($pkContent),
-                'version' => $version ?? '1.0.0'
+                'version' => $version ?? '1.0.0',
+                'quality' => $qualityReport
             ];
-            Storage::put($metadataPath, json_encode($metadata, JSON_PRETTY_PRINT));
-            Log::info('Metadata saved', ['path' => $metadataPath]);
+            Storage::disk('advisors')->put($metadataPath, json_encode($metadata, JSON_PRETTY_PRINT));
+            Log::info('Metadata saved with quality report', ['path' => $metadataPath]);
             
             $savedFiles = [
                 'pi' => $piPath,
@@ -76,6 +102,7 @@ class AdvisorGenerationService
                 'pi_content' => $piContent,
                 'pk_content' => $pkContent,
                 'files' => $savedFiles,
+                'quality' => $qualityReport,
                 'generated_at' => now()->toIso8601String()
             ];
             
@@ -146,7 +173,17 @@ class AdvisorGenerationService
      */
     protected function enhancePIWithExamples(string $baseTemplate, array $advisorData): string
     {
-        Log::info('enhancePIWithExamples called', ['advisor_data_keys' => array_keys($advisorData)]);
+        // Check if template has HTML comments that need processing
+        $htmlComments = $this->templateService->extractHTMLComments($baseTemplate);
+        if (empty($htmlComments)) {
+            Log::info('No HTML comments to process, returning base template');
+            return $baseTemplate;
+        }
+        
+        Log::info('enhancePIWithExamples called', [
+            'advisor_data_keys' => array_keys($advisorData),
+            'html_comments_found' => count($htmlComments)
+        ]);
         
         // Extract key information for personalization
         $advisorName = $advisorData['fullName'] ?? $advisorData['name'] ?? 'Unknown Advisor';
@@ -284,8 +321,8 @@ PROMPT;
             $advisorData
         );
 
-        // PK MUST use LLM (this is correct)
-        $model = config('services.openai.model', 'o4-mini-deep-research');
+        // PK MUST use LLM with o3-deep-research model
+        $model = config('services.openai.pk_model', 'o3-deep-research');
         $generatedContent = $this->llmService->generateText($prompt, [
             'model' => $model,
             'temperature' => 0.7,

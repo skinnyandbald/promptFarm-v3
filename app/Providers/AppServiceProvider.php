@@ -7,6 +7,7 @@ use App\Services\TemplateService;
 use App\Services\LLMService;
 use App\Services\AdvisorGenerationService;
 use App\Services\AdvisorConfigService;
+use App\Services\Validation\AdvisorQualityService;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -27,11 +28,16 @@ class AppServiceProvider extends ServiceProvider
             return new AdvisorConfigService();
         });
 
+        $this->app->singleton(AdvisorQualityService::class, function ($app) {
+            return new AdvisorQualityService();
+        });
+
         $this->app->singleton(AdvisorGenerationService::class, function ($app) {
             return new AdvisorGenerationService(
                 $app->make(TemplateService::class),
                 $app->make(LLMService::class),
-                $app->make(AdvisorConfigService::class)
+                $app->make(AdvisorConfigService::class),
+                $app->make(AdvisorQualityService::class)
             );
         });
     }
