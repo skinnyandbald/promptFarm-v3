@@ -124,3 +124,4 @@ coverage/
 .rr.yaml
 roadrunner
 roadrunner.exe
+/.claude/settings.local.json
