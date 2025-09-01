@@ -325,7 +325,10 @@ PROMPT;
     }
 
     /**
-     * Generate PK (Project Knowledge) content
+     * Generate PK (Project Knowledge) content with Stage 1 improvements:
+     * - Enforced specificity and real examples
+     * - Pre-validation loop with quality scoring
+     * - Voice calibration and consistency checks
      */
     protected function generatePK(array $advisorData, ?string $version = 'v1'): string
     {
@@ -338,36 +341,99 @@ PROMPT;
         if (isset($advisorData['key']) && is_string($advisorData['key'])) {
             $config = $this->configService->getAdvisorConfig($advisorData['key']);
             $mappedVars = $this->configService->mapVariables($config);
+            $advisorData = array_merge($advisorData, $config);
         } else {
             $mappedVars = $this->configService->mapVariables($advisorData);
         }
 
         $processedTemplate = $this->templateService->substituteVariables($template, $mappedVars);
 
-        $prompt = $this->buildGenerationPrompt(
-            'Project Knowledge (PK)',
-            $processedTemplate,
-            $advisorData
-        );
+        // Extract voice patterns for calibration
+        $voicePatterns = $this->extractVoicePatterns($advisorData);
 
-        // PK generation using configured model
-        $model = config('services.openai.pk_model', 'gpt-4o');
-        $generatedContent = $this->llmService->generateText($prompt, [
-            'model' => $model,
-            'temperature' => 0.7,
-            'max_tokens' => (int) config('services.openai.max_tokens', 8000)
-        ]);
+        // Pre-validation loop: Try up to 3 times to get quality content
+        $bestContent = null;
+        $bestScore = 0;
+        $attempts = 0;
+        $maxAttempts = 3;
 
-        $cleanedContent = $this->validateAndCleanContent($generatedContent, 'PK');
-        
+        while ($attempts < $maxAttempts) {
+            $attempts++;
+            Log::info("PK generation attempt {$attempts}/{$maxAttempts}");
+
+            $prompt = $this->buildEnhancedGenerationPrompt(
+                'Project Knowledge (PK)',
+                $processedTemplate,
+                $advisorData,
+                $voicePatterns
+            );
+
+            // Use optimized model configuration for Stage 1
+            $model = config('advisors.stage1.model', 'gpt-4-turbo-preview');
+            $temperature = config('advisors.stage1.temperature', 0.4);
+            
+            // Adjust max_tokens based on model
+            $maxTokens = 4000; // Safe default
+            if (str_contains($model, 'gpt-4')) {
+                $maxTokens = 4000; // GPT-4 models have 4096 completion token limit
+            } elseif (str_contains($model, 'gpt-3.5')) {
+                $maxTokens = 4000;
+            }
+            
+            $generatedContent = $this->llmService->generateText($prompt, [
+                'model' => $model,
+                'temperature' => $temperature,
+                'max_tokens' => $maxTokens
+            ]);
+
+            // Validate and score the content
+            $cleanedContent = $this->validateAndCleanContent($generatedContent, 'PK');
+            
+            // Check for placeholder text
+            if ($this->containsPlaceholders($cleanedContent)) {
+                Log::warning("PK contains placeholders, attempt {$attempts}");
+                continue;
+            }
+
+            // Score the content quality
+            $pkScore = $this->qualityService->scorePK($cleanedContent);
+            $scorePercentage = $pkScore['percentage'] ?? 0;
+            
+            Log::info("PK quality score: {$scorePercentage}%", [
+                'attempt' => $attempts,
+                'issues' => count($pkScore['issues'] ?? [])
+            ]);
+
+            // Keep best attempt
+            if ($scorePercentage > $bestScore) {
+                $bestContent = $cleanedContent;
+                $bestScore = $scorePercentage;
+            }
+
+            // Accept if quality threshold met
+            if ($scorePercentage >= 80) {
+                Log::info("PK quality threshold met at {$scorePercentage}%");
+                break;
+            }
+        }
+
+        if (!$bestContent) {
+            throw new \Exception("Failed to generate acceptable PK content after {$maxAttempts} attempts");
+        }
+
         // Inject model information into existing metadata section
-        $cleanedContent = $this->injectModelMetadata($cleanedContent, $model);
+        $bestContent = $this->injectModelMetadata($bestContent, $model ?? config('advisors.stage1.model', 'gpt-4o'));
         
-        return $cleanedContent;
+        Log::info("PK generation completed", [
+            'final_score' => $bestScore,
+            'attempts' => $attempts
+        ]);
+        
+        return $bestContent;
     }
 
     /**
-     * Build a generation prompt for the LLM
+     * Build a generation prompt for the LLM (legacy method for backward compatibility)
      */
     protected function buildGenerationPrompt(string $type, string $template, array $advisorData): string
     {
@@ -385,13 +451,95 @@ Template Structure:
 
 Instructions:
 1. Generate content that follows the template structure exactly
-2. Create authentic, engaging, and consistent personality traits
-3. Ensure the content is coherent and well-structured
-4. Maintain the advisor's unique voice and perspective throughout
-5. Replace all template variables with appropriate content
-6. Do not include any meta-commentary or explanations - only the advisor content
+2. Create DISTINCTIVE, INSIGHTFUL personality traits based on real expertise
+3. Include hard-won truths that most advisors won't share
+4. Name specific examples (companies/people) to illustrate real patterns
+5. Replace all template variables with SPECIFIC, TRUTHFUL content
+6. Share insights that challenge conventional wisdom but actually work
+7. Focus on helping the reader succeed, not just being provocative
+8. Do not include any meta-commentary or explanations - only the advisor content
 
 Generate the complete {$type} document now:
+PROMPT;
+    }
+
+    /**
+     * Build an enhanced generation prompt with specificity enforcement (Stage 1)
+     */
+    protected function buildEnhancedGenerationPrompt(string $type, string $template, array $advisorData, array $voicePatterns): string
+    {
+        $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown Advisor';
+        $expertise = $advisorData['core_expertise_area'] ?? $advisorData['expertise_area'] ?? '';
+        $background = $advisorData['background_description'] ?? $advisorData['background'] ?? '';
+        $notableWork = $advisorData['notable_achievements'] ?? '';
+        $methodology = $advisorData['decision_making_approach'] ?? '';
+        $keyPhrases = $advisorData['key_phrases_or_terminology'] ?? '';
+        
+        // Extract specific voice characteristics
+        $voiceStyle = $voicePatterns['style'] ?? 'direct and assertive';
+        $sentenceStructure = $voicePatterns['sentence_structure'] ?? 'short, punchy sentences';
+        $vocabulary = $voicePatterns['vocabulary'] ?? 'industry-specific terminology';
+        
+        return <<<PROMPT
+You are {$advisorName}, a legendary {$expertise} expert. Generate your Project Knowledge (PK) document.
+
+CRITICAL REQUIREMENTS FOR MAXIMUM QUALITY:
+
+1. **SPECIFICITY IS MANDATORY**:
+   - Use REAL company names: Apple, Nike, Domino's, Coca-Cola, Tesla
+   - Use EXACT metrics: "increased revenue 47%", "reduced churn from 18% to 6%"
+   - Use ACTUAL campaign names with dates: "Just Do It (1988)", "Think Different (1997)"
+   - NO placeholders like [company], {brand}, or generic terms
+
+2. **FIRST-PERSON VOICE THROUGHOUT**:
+   - Write as {$advisorName} speaking directly
+   - Use "I", "my", "I've" consistently
+   - Share personal experiences: "When I led the turnaround at..."
+   - Voice style: {$voiceStyle}
+   - Sentence structure: {$sentenceStructure}
+   - Vocabulary: {$vocabulary}
+
+3. **BATTLE-TESTED EXAMPLES ONLY**:
+   - Every case study must have: Company name, Year, Specific challenge, Exact solution, Measurable outcome
+   - Example: "At Domino's (2009), I faced 16% YoY decline. Implemented 'Pizza Tracker' technology. Result: 14% same-store growth in 18 months."
+
+4. **CONTROVERSIAL & CONTRARIAN POSITIONS**:
+   - Name specific companies/people doing it wrong
+   - Take positions that would anger industry leaders
+   - Include at least 3 opinions that go against best practices
+   - Example: "McKinsey is destroying companies with their 'transformation' playbooks. I watched them burn $50M at..."
+   - Call out specific failures: "WeWork, Quibi, Theranos - here's what they got wrong..."
+
+5. **VOICE CALIBRATION**:
+   Background: {$background}
+   Notable Work: {$notableWork}
+   Methodology: {$methodology}
+   Key Phrases to use naturally: {$keyPhrases}
+
+6. **SENTENCE LENGTH**:
+   - Average 15 words per sentence maximum
+   - Mix short (5-8 words) with medium (12-18 words)
+   - No run-on sentences over 25 words
+
+7. **UNCOMFORTABLE TRUTHS & REAL ENEMIES**:
+   - Identify 3-5 specific problems in the industry that everyone ignores
+   - Name the companies/people/practices perpetuating these problems
+   - Explain the REAL damage they cause to businesses
+   - Focus on truths that would genuinely help someone avoid failure
+   - Example: "McKinsey's playbooks work for McKinsey, not their clients. They optimize for billable hours, not outcomes."
+
+8. **INSIGHTS THAT CREATE USEFUL TENSION**:
+   - Include 5-10 insights that challenge assumptions but lead to better outcomes
+   - Each insight should help someone make a better decision
+   - Focus on what actually works vs. what people think works
+   - Example: "Most A/B tests are theater. You already know which version is better, you're just scared to ship it."
+
+Template to complete:
+{$template}
+
+CRITICAL: Your goal is to deliver insights that actually help people succeed. Tell the truths that consultants charge $500/hour to whisper. Name specific failures not to be mean, but to help others avoid the same mistakes. Create tension that leads to breakthrough thinking, not just Twitter arguments.
+
+Generate the complete PK document now as {$advisorName}:
 PROMPT;
     }
 
@@ -557,6 +705,99 @@ PROMPT;
         }
         
         return Storage::deleteDirectory($basePath);
+    }
+
+    /**
+     * Extract voice patterns from advisor data for calibration
+     */
+    protected function extractVoicePatterns(array $advisorData): array
+    {
+        $patterns = [];
+        
+        // Determine voice style based on advisor type
+        $advisorType = $advisorData['advisor_type'] ?? 'strategic';
+        switch ($advisorType) {
+            case 'contrarian':
+                $patterns['style'] = 'provocative and challenging';
+                $patterns['sentence_structure'] = 'short, punchy declarations';
+                $patterns['vocabulary'] = 'blunt, no-nonsense terminology';
+                break;
+            case 'analytical':
+                $patterns['style'] = 'data-driven and methodical';
+                $patterns['sentence_structure'] = 'structured with clear logic flow';
+                $patterns['vocabulary'] = 'precise metrics and technical terms';
+                break;
+            case 'visionary':
+                $patterns['style'] = 'inspirational and forward-thinking';
+                $patterns['sentence_structure'] = 'building to crescendos';
+                $patterns['vocabulary'] = 'transformative and aspirational language';
+                break;
+            default:
+                $patterns['style'] = 'direct and authoritative';
+                $patterns['sentence_structure'] = 'clear and assertive statements';
+                $patterns['vocabulary'] = 'industry-standard terminology';
+        }
+        
+        // Add specific phrases if available
+        if (!empty($advisorData['key_phrases_or_terminology'])) {
+            $patterns['signature_phrases'] = $advisorData['key_phrases_or_terminology'];
+        }
+        
+        return $patterns;
+    }
+
+    /**
+     * Check if content contains placeholder text
+     */
+    protected function containsPlaceholders(string $content): bool
+    {
+        $placeholders = [
+            '[company]',
+            '[brand]',
+            '[client]',
+            '[industry]',
+            '[metric]',
+            '[result]',
+            '{{',
+            '}}',
+            '{company}',
+            '{brand}',
+            '<insert',
+            '<placeholder',
+            'INSERT_',
+            'PLACEHOLDER_',
+            '[INSERT',
+            '[PLACEHOLDER'
+        ];
+        
+        foreach ($placeholders as $placeholder) {
+            if (stripos($content, $placeholder) !== false) {
+                Log::warning("Found placeholder in content: {$placeholder}");
+                return true;
+            }
+        }
+        
+        // Check for generic company names that indicate poor specificity
+        $genericTerms = [
+            'Company X',
+            'Brand Y',
+            'Client A',
+            'Business B',
+            'Corporation C',
+            'a major brand',
+            'a leading company',
+            'a well-known brand',
+            'a Fortune 500 company'
+        ];
+        
+        foreach ($genericTerms as $term) {
+            if (stripos($content, $term) !== false) {
+                Log::warning("Found generic term in content: {$term}");
+                return true;
+            }
+        }
+        
+        return false;
     }
 
     /**
