@@ -60,6 +60,13 @@ return [
             'report' => false,
         ],
 
+        'advisors' => [
+            'driver' => 'local',
+            'root' => storage_path('app/advisors'),
+            'throw' => true,
+            'report' => true,
+        ],
+
     ],
 
     /*

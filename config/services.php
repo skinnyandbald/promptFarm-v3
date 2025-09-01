@@ -38,10 +38,20 @@ return [
     'openai' => [
         'api_key' => env('OPENAI_API_KEY'),
         'model' => env('OPENAI_MODEL', 'o3-deep-research'),
+        'pk_model' => env('PK_GENERATION_MODEL', 'o3-deep-research'),
+        'pi_enhancement_model' => env('PI_ENHANCEMENT_MODEL', 'gpt-4o-mini'),
         'max_tokens' => env('OPENAI_MAX_TOKENS', 100000),
         'timeout' => env('OPENAI_TIMEOUT', 300),
         'temperature' => env('OPENAI_TEMPERATURE', 0.7),
         'organization' => env('OPENAI_ORGANIZATION'),
+    ],
+
+    'advisor' => [
+        'pi_quality_threshold' => env('ADVISOR_PI_QUALITY_THRESHOLD', 75),
+        'pk_quality_threshold' => env('ADVISOR_PK_QUALITY_THRESHOLD', 80),
+        'storage_disk' => env('ADVISOR_STORAGE_DISK', 'advisors'),
+        'enable_quality_validation' => env('ADVISOR_ENABLE_QUALITY_VALIDATION', true),
+        'fail_on_low_quality' => env('ADVISOR_FAIL_ON_LOW_QUALITY', false),
     ],
 
 ];

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Symfony\Component\Yaml\Yaml;
 
 class TemplateService
 {
@@ -82,16 +83,25 @@ class TemplateService
     /**
      * Validate that all required variables are present in the template
      */
-    public function validateTemplate(string $template, array $requiredVariables): bool
+    public function validateTemplate(string $template, array $requiredVariables): array
     {
+        $missingVariables = [];
+        $foundVariables = [];
+        
         foreach ($requiredVariables as $variable) {
             $placeholder = '{{' . $variable . '}}';
             if (!Str::contains($template, $placeholder)) {
-                return false;
+                $missingVariables[] = $variable;
+            } else {
+                $foundVariables[] = $variable;
             }
         }
         
-        return true;
+        return [
+            'valid' => empty($missingVariables),
+            'missing' => $missingVariables,
+            'found' => $foundVariables
+        ];
     }
 
     /**
@@ -110,5 +120,102 @@ class TemplateService
     {
         $template = $this->loadTemplate($name, $version);
         return $this->substituteVariables($template, $variables);
+    }
+
+    /**
+     * Validate template structure and check for required sections
+     */
+    public function validateTemplateStructure(string $template): array
+    {
+        $issues = [];
+        $requiredSections = [
+            '# Voice Anchor',
+            '# Primary Framework',
+            '# Core Operating Principles',
+            '# Chain-of-Thought',
+            '# Few-Shot Priming',
+            '# Expertise Integration'
+        ];
+        
+        foreach ($requiredSections as $section) {
+            if (!Str::contains($template, $section)) {
+                $issues[] = "Missing required section: {$section}";
+            }
+        }
+        
+        // Check for remaining placeholders
+        if (preg_match('/{{[^}]+}}/', $template)) {
+            $issues[] = 'Template contains unsubstituted variable placeholders';
+        }
+        
+        // Check for HTML comments that need processing
+        if (preg_match('/<!--[^>]+-->/', $template)) {
+            $issues[] = 'Template contains HTML comments that need LLM processing';
+        }
+        
+        return [
+            'valid' => empty($issues),
+            'issues' => $issues
+        ];
+    }
+
+    /**
+     * Extract HTML comments that need LLM processing
+     */
+    public function extractHTMLComments(string $template): array
+    {
+        preg_match_all('/<!--\s*([^>]+)\s*-->/', $template, $matches);
+        
+        $comments = [];
+        foreach ($matches[0] as $index => $fullMatch) {
+            $comments[] = [
+                'full_match' => $fullMatch,
+                'content' => trim($matches[1][$index]),
+                'position' => strpos($template, $fullMatch)
+            ];
+        }
+        
+        return $comments;
+    }
+
+    /**
+     * Get template metadata from YAML frontmatter
+     */
+    public function getTemplateMetadata(string $template): array
+    {
+        // Check if template starts with YAML frontmatter
+        if (!Str::startsWith($template, '---')) {
+            return [];
+        }
+        
+        // Extract YAML frontmatter
+        $parts = explode('---', $template, 3);
+        if (count($parts) < 3) {
+            return [];
+        }
+        
+        try {
+            $metadata = Yaml::parse($parts[1]);
+            return $metadata ?: [];
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Check if template has all required variables substituted
+     */
+    public function hasUnsubstitutedVariables(string $template): bool
+    {
+        return (bool) preg_match('/{{[^}]+}}/', $template);
+    }
+
+    /**
+     * Get list of unsubstituted variables in template
+     */
+    public function getUnsubstitutedVariables(string $template): array
+    {
+        preg_match_all('/{{([^}]+)}}/', $template, $matches);
+        return array_unique($matches[1]);
     }
 }
