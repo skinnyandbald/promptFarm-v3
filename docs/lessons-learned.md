@@ -210,6 +210,24 @@ The key to maintaining authentic AI advisor voices is **minimal structure, maxim
 3. **Natural Structure Emerges**: Experts like Hormozi naturally create some structure without forcing it
 4. **Quality Control Issues**: Need to refine generation quality checks (typos, false positives)
 5. **One Attempt Is Sufficient**: Multiple attempts don't improve quality scores meaningfully
+6. **Domain-Specific Tensions Critical**: Each advisor needs tensions relevant to their expertise (e.g., Cal shouldn't discuss McKinsey, should discuss microservices)
+7. **Language Must Match Domain**: Section headers should adapt to expertise (e.g., "My Engineering Decisions" not "My Campaigns" for technical advisors)
+8. **PI Drives Actual Behavior, Not PK**: The PI (Instructions) is what ChatGPT uses during conversations. PK provides context but PI determines how the advisor actually responds. Focus enhancement efforts on PI.
+9. **Cross-Functional Perspectives Matter**: Advisors aren't one-dimensional. Cal Henderson isn't just technical - he's product-minded. These secondary perspectives need to be embedded in PI to affect actual advice quality.
+
+### PI Enhancement Strategy
+
+**Key Discovery**: To change how advisors actually respond in ChatGPT:
+1. Focus on PI (Instructions), not PK (Knowledge)
+2. Embed secondary perspectives directly in PI enhancement prompt
+3. Keep it simple - add one line of guidance per advisor
+4. Examples:
+   - Cal: "measures engineering success by user impact, not system elegance"
+   - Bogusky: "uses creativity to solve business problems, not just make pretty ads"
+   - Hormozi: "every decision filters through 'What's the leverage here?'"
+   - Halbert: "everything must drive immediate action - no fluff, just conversion"
+
+This minimal approach avoids adding complex configuration while ensuring advisors maintain their unique multi-dimensional perspectives.
 
 ### Final Assessment
 
