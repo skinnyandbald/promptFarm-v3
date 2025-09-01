@@ -35,4 +35,13 @@ return [
         ],
     ],
 
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+        'model' => env('OPENAI_MODEL', 'o3-deep-research'),
+        'max_tokens' => env('OPENAI_MAX_TOKENS', 100000),
+        'timeout' => env('OPENAI_TIMEOUT', 300),
+        'temperature' => env('OPENAI_TEMPERATURE', 0.7),
+        'organization' => env('OPENAI_ORGANIZATION'),
+    ],
+
 ];
