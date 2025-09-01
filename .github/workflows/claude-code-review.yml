@@ -46,17 +46,12 @@ jobs:
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
       
       - name: Claude AI Review
-        uses: anthropics/claude-code-review-action@v1
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
         with:
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: claude-3-7-sonnet-20241022
-          max-tokens: 8192
-          temperature: 0.3
-          timeout: 600
-          
-          # Review configuration
-          review-type: comprehensive
-          focus-areas: |
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Please review this Laravel 12 pull request and provide feedback on:
             - Laravel best practices and conventions
             - Code quality and maintainability
             - Security vulnerabilities
@@ -65,52 +60,24 @@ jobs:
             - Template processing accuracy
             - Quality validation implementation
             
-          # Context for Claude
-          context: |
-            This is a Laravel 12 project with an advisor generation system.
-            Key components:
+            Context: This is an advisor generation system with:
             - PI (Project Instructions) generation with template substitution + LLM enhancement
-            - PK (Project Knowledge) generation using LLM (o3-deep-research)
+            - PK (Project Knowledge) generation using LLM
             - Quality validation scoring system
             - Template variable mapping and HTML comment processing
             
-            Please review for:
-            1. Laravel 12 best practices
-            2. Service organization and dependency injection
-            3. Template processing logic
-            4. Quality validation accuracy
-            5. Storage configuration using advisors disk
-            6. Security and performance issues
-            
-          # Tools to enable
-          enable-suggestions: true
-          enable-code-fixes: true
-          enable-security-scan: true
+            Use the repository's CLAUDE.md for guidance on Laravel conventions.
+            Be constructive and helpful in your feedback.
+            Use `gh pr comment` with your Bash tool to leave your review as a comment on the PR.
           
-          # Comment settings
-          comment-on-pr: true
-          comment-style: detailed
-          group-comments: true
-          
-          # File filters
-          include-files: |
-            app/**/*.php
-            config/*.php
-            resources/advisor-templates/*.md
-            tests/**/*.php
-            
-          exclude-files: |
-            vendor/**
-            storage/**
-            bootstrap/cache/**
+          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
             
       - name: Post review summary
-        if: always()
+        if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const issue_number = context.issue.number || context.payload.pull_request.number;
             const review_status = '${{ steps.claude-review.outcome }}';
             
             let emoji = review_status === 'success' ? '✅' : '⚠️';
@@ -119,7 +86,7 @@ jobs:
             github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: issue_number,
+              issue_number: context.payload.pull_request.number,
               body: `${emoji} Claude AI code review ${status}. Check the review comments above for details.`
             });
       
