@@ -45,6 +45,10 @@ return [
         'temperature' => env('OPENAI_TEMPERATURE', 0.7),
         'organization' => env('OPENAI_ORGANIZATION'),
     ],
+    
+    'xai' => [
+        'api_key' => env('XAI_API_KEY'),
+    ],
 
     'advisor' => [
         'pi_quality_threshold' => env('ADVISOR_PI_QUALITY_THRESHOLD', 75),
