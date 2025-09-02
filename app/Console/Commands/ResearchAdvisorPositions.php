@@ -13,7 +13,11 @@ class ResearchAdvisorPositions extends Command
      *
      * @var string
      */
-    protected $signature = 'advisor:research {advisor? : The advisor key (e.g., hormozi, bogusky)} {--all : Research all advisors} {--force : Force re-research even if cached} {--sync : Run synchronously instead of dispatching as job}';
+    protected $signature = 'advisor:research 
+        {advisor? : The advisor key (e.g., hormozi, bogusky)} 
+        {--all : Research all advisors} 
+        {--force : Force re-research even if cached} 
+        {--sync : Run synchronously instead of dispatching as job}';
 
     /**
      * The console command description.
