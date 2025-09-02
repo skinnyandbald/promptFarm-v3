@@ -5,7 +5,6 @@ namespace App\Services;
 use GuzzleHttp\Client as GuzzleClient;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
-use OpenAI;
 
 class LLMService
 {
@@ -21,12 +20,8 @@ class LLMService
 
     public function __construct()
     {
-        $this->config = Config::get('services.openai', []);
-
-        if (! empty($this->config['api_key'])) {
-            $this->client = OpenAI::client($this->config['api_key']);
-            $this->httpClient = new GuzzleClient;
-        }
+        $this->config = Config::get('services.openrouter', []);
+        $this->httpClient = new GuzzleClient;
     }
 
     /**

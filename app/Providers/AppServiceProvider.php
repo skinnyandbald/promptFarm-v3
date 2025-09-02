@@ -20,9 +20,12 @@ class AppServiceProvider extends ServiceProvider
             return new TemplateService();
         });
 
-        $this->app->singleton(LLMService::class, function ($app) {
-            return new LLMService();
-        });
+        // In testing environment, don't register LLMService - let tests mock it
+        if (!$this->app->environment('testing')) {
+            $this->app->singleton(LLMService::class, function ($app) {
+                return new LLMService();
+            });
+        }
 
         $this->app->singleton(AdvisorConfigService::class, function ($app) {
             return new AdvisorConfigService();
