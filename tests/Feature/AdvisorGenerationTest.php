@@ -170,6 +170,15 @@ class AdvisorGenerationTest extends TestCase
                 ['full_match' => '<!-- Chain-of-thought example needed -->', 'content' => 'Chain-of-thought example needed']
             ]);
             
+        // Mock research job LLM call
+        $this->mockLLMService
+            ->shouldReceive('generateText')
+            ->withArgs(function($prompt, $options) {
+                return str_contains($prompt, 'CORE contrarian principles') &&
+                       $options['model'] === 'x-ai/grok-3';
+            })
+            ->andReturn('Position 1\nPosition 2\nPosition 3');
+            
         // Mock LLM enhancement
         $this->mockLLMService
             ->shouldReceive('generateText')
@@ -179,14 +188,14 @@ class AdvisorGenerationTest extends TestCase
             })
             ->andReturn($enhancedTemplate);
             
-        // Mock PK generation
+        // Mock PK generation  
         $this->mockLLMService
             ->shouldReceive('generateText')
             ->withArgs(function($prompt, $options) {
                 return str_contains($prompt, 'Project Knowledge') &&
-                       $options['model'] === 'o3-deep-research';
+                       $options['model'] === 'x-ai/grok-3';
             })
-            ->andReturn('Generated PK content');
+            ->andReturn(str_repeat('Generated PK content with enough text to pass validation and content length checks. ', 10));
             
         // Mock quality scoring
         $this->mockQualityService
@@ -214,7 +223,7 @@ class AdvisorGenerationTest extends TestCase
     {
         // Arrange
         $advisorData = [
-            'key' => 'test_advisor',
+            'key' => 'henderson',  // Keep temperature at 0.7 for stable test behavior
             'name' => 'Test Advisor',
             'fullName' => 'Test Expert Advisor'
         ];
@@ -254,13 +263,23 @@ class AdvisorGenerationTest extends TestCase
             ->with('meta_pk_template_v1')
             ->andReturn($pkTemplate);
             
+        // Mock research job LLM call first
         $this->mockLLMService
             ->shouldReceive('generateText')
             ->withArgs(function($prompt, $options) {
-                return $options['model'] === 'o3-deep-research' &&
+                return str_contains($prompt, 'CORE contrarian principles') &&
+                       $options['model'] === 'x-ai/grok-3';
+            })
+            ->andReturn('Position 1\nPosition 2\nPosition 3');
+            
+        // Mock PK generation
+        $this->mockLLMService
+            ->shouldReceive('generateText')
+            ->withArgs(function($prompt, $options) {
+                return $options['model'] === 'x-ai/grok-3' &&
                        $options['temperature'] === 0.7;
             })
-            ->andReturn($generatedPK);
+            ->andReturn($generatedPK . str_repeat(' Additional content to meet minimum length requirements.', 5));
             
         // Mock quality scoring
         $this->mockQualityService

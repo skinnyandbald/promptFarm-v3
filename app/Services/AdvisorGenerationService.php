@@ -266,7 +266,7 @@ class AdvisorGenerationService
             ]);
 
             // Use configured model for PI enhancement
-            $enhancedContent = $this->llmService->generateTextWithOpenRouter($enhancementPrompt, [
+            $enhancedContent = $this->llmService->generateText($enhancementPrompt, [
                 'model' => config('ai-models.purposes.pi_enhancement'),
                 'temperature' => config('ai-models.settings.pi_enhancement.temperature'),
                 'max_tokens' => config('ai-models.settings.pi_enhancement.max_tokens'),
@@ -422,7 +422,7 @@ PROMPT;
                 default => 0.8       // Safe default
             };
 
-            $generatedContent = $this->llmService->generateTextWithOpenRouter($prompt, [
+            $generatedContent = $this->llmService->generateText($prompt, [
                 'model' => $model,
                 'temperature' => $temperature,
                 'max_tokens' => config('ai-models.settings.pk_generation.max_tokens'),
