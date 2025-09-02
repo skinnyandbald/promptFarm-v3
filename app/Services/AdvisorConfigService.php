@@ -35,6 +35,9 @@ class AdvisorConfigService
         $decisionApproach = Arr::get($config, 'decision_making_approach', '');
         $keyPhrases = Arr::get($config, 'key_phrases_or_terminology', '');
         
+        // Generate PascalCase version of advisor name for file references
+        $advisorNamePascal = str_replace(' ', '', ucwords(str_replace('-', ' ', $advisorName)));
+        
         // Generate derived variables
         $chainOfThought = $this->generateChainOfThought($config);
         $fewShotExamples = $this->generateFewShotExamples($config);
@@ -55,6 +58,7 @@ class AdvisorConfigService
         return [
             // Core advisor information
             'advisor_name' => $advisorName,
+            'advisor_name_pascal' => $advisorNamePascal,  // For file references like AlexBogusky_PK.md
             'name' => Arr::get($config, 'name', ''),
             'voice_dna' => $communicationStyle,
             
