@@ -111,14 +111,14 @@ class UnifiedAnalysisCommand extends Command
 
                 if (isset($paths['pi']) && File::exists($paths['pi'])) {
                     $piContent = File::get($paths['pi']);
-                    $piValidation = $this->qualityService->validatePI($piContent);
-                    $piScore = $piValidation['score'] ?? 0;
+                    $piValidation = $this->qualityService->scorePI($piContent);
+                    $piScore = is_array($piValidation) ? ($piValidation['percentage'] ?? 0) : ($piValidation ?? 0);
                 }
 
                 if (isset($paths['pk']) && File::exists($paths['pk'])) {
                     $pkContent = File::get($paths['pk']);
-                    $pkValidation = $this->qualityService->validatePK($pkContent);
-                    $pkScore = $pkValidation['score'] ?? 0;
+                    $pkValidation = $this->qualityService->scorePK($pkContent);
+                    $pkScore = is_array($pkValidation) ? ($pkValidation['percentage'] ?? 0) : ($pkValidation ?? 0);
                 }
 
                 $results[] = [
@@ -126,7 +126,7 @@ class UnifiedAnalysisCommand extends Command
                     'version' => $version,
                     'pi_score' => $piScore ?? 'N/A',
                     'pk_score' => $pkScore ?? 'N/A',
-                    'combined' => ($piScore && $pkScore) ? round(($piScore + $pkScore) / 2, 1) : 'N/A',
+                    'combined' => ($piScore !== null && $pkScore !== null) ? round(($piScore + $pkScore) / 2, 1) : 'N/A',
                 ];
             }
         }
@@ -139,8 +139,14 @@ class UnifiedAnalysisCommand extends Command
 
         // Output in requested format
         if ($this->option('output') === 'json') {
-            File::put('version_comparison.json', json_encode($results, JSON_PRETTY_PRINT));
-            $this->info('Results saved to version_comparison.json');
+            $outputPath = storage_path('app/advisor-tests/version_comparison.json');
+            File::put($outputPath, json_encode($results, JSON_PRETTY_PRINT));
+            $this->info("Results saved to {$outputPath}");
+        } elseif ($this->option('output') === 'csv') {
+            $outputPath = storage_path('app/advisor-tests/version_comparison.csv');
+            $csvContent = $this->buildCsvContent($results);
+            File::put($outputPath, $csvContent);
+            $this->info("Results saved to {$outputPath}");
         }
 
         return Command::SUCCESS;
@@ -364,7 +370,8 @@ class UnifiedAnalysisCommand extends Command
     private function findAdvisorVersions(string $advisorKey): array
     {
         $versions = [];
-        $basePath = storage_path("app/advisors/{$advisorKey}");
+        $advisorDirName = $this->getAdvisorDirectoryName($advisorKey);
+        $basePath = storage_path("app/advisors/{$advisorDirName}");
 
         // Check standard version locations
         $versionPaths = [
@@ -580,5 +587,56 @@ class UnifiedAnalysisCommand extends Command
         if (empty($recommendations)) {
             $this->info('No specific improvements needed');
         }
+    }
+
+    private function buildCsvContent(array $results): string
+    {
+        $csv = [];
+        
+        // Get headers - use first result if available, otherwise use defaults
+        if (!empty($results)) {
+            $headers = array_keys($results[0]);
+        } else {
+            // Default headers when no results
+            $headers = ['advisor', 'version', 'pi_score', 'pk_score', 'combined'];
+        }
+        
+        // Add header row
+        $csv[] = implode(',', array_map(fn($h) => '"' . str_replace('"', '""', ucfirst(str_replace('_', ' ', $h))) . '"', $headers));
+        
+        // If no results, return just headers
+        if (empty($results)) {
+            return implode("\n", $csv);
+        }
+        
+        // Add data rows
+        foreach ($results as $row) {
+            $csvRow = [];
+            foreach ($headers as $header) {
+                $value = $row[$header] ?? '';
+                // Escape quotes and wrap in quotes if contains comma, quote, or newline
+                if (is_string($value) && (str_contains($value, ',') || str_contains($value, '"') || str_contains($value, "\n"))) {
+                    $csvRow[] = '"' . str_replace('"', '""', $value) . '"';
+                } else {
+                    $csvRow[] = $value;
+                }
+            }
+            $csv[] = implode(',', $csvRow);
+        }
+        
+        return implode("\n", $csv);
+    }
+
+    private function getAdvisorDirectoryName(string $advisorKey): string
+    {
+        return match ($advisorKey) {
+            'bogusky' => 'alex-bogusky',
+            'hormozi' => 'alex-hormozi',
+            'henderson' => 'cal-henderson',
+            'halbert' => 'gary-halbert',
+            'csv_test' => 'csv-test',
+            'debug_csv' => 'debug-csv',
+            default => str_replace('_', '-', $advisorKey),
+        };
     }
 }

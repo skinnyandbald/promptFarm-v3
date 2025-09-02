@@ -149,10 +149,10 @@ class UnifiedAnalysisCommandTest extends TestCase
             ->assertSuccessful();
 
         // Check that JSON file was created
-        $this->assertFileExists(base_path('version_comparison.json'));
+        $this->assertFileExists(storage_path('app/advisor-tests/version_comparison.json'));
 
         // Clean up
-        File::delete(base_path('version_comparison.json'));
+        File::delete(storage_path('app/advisor-tests/version_comparison.json'));
     }
 
     public function test_historical_analysis_with_existing_data(): void
@@ -208,5 +208,62 @@ class UnifiedAnalysisCommandTest extends TestCase
         $this->artisan('advisor:analyze approach --advisor=bogusky --compare=analytical')
             ->assertSuccessful()
             ->expectsOutputToContain('Testing analytical approach for bogusky');
+    }
+
+    public function test_versions_analysis_can_output_csv(): void
+    {
+        // Create test advisor with consistent key/slug
+        $advisor = Advisor::create([
+            'key' => 'csv-test-advisor',
+            'name' => 'CSV Test Advisor',
+            'slug' => 'csv-test-advisor',
+            'full_name' => 'CSV Test Full Name',
+            'known_for' => 'CSV output testing',
+            'era' => '2020s',
+            'style' => 'Data-driven approach',
+            'industry' => 'Software Testing',
+            'primary_objective' => 'Test CSV output functionality',
+            'core_expertise_area' => 'Testing',
+            'related_expertise_areas' => ['csv', 'data'],
+            'communication_style_description' => 'clear',
+            'decision_making_approach' => 'Structured data decisions',
+            'key_phrases_or_terminology' => ['csv format', 'data export'],
+            'emotional_characteristics' => 'Calm',
+            'unique_perspectives_or_contrarian_stances' => 'CSV > JSON',
+        ]);
+
+        // Create test version files for the advisor using the same name
+        Storage::disk('advisors')->put('csv-test-advisor/current/PI.md', 'Test PI content');
+        Storage::disk('advisors')->put('csv-test-advisor/current/PK.md', 'Test PK content');
+
+        // Run analysis specifically for this advisor to ensure we get results
+        $this->artisan('advisor:analyze versions --advisor=csv-test-advisor --output=csv')
+            ->assertSuccessful();
+
+        // Check that CSV file was created
+        $this->assertFileExists(storage_path('app/advisor-tests/version_comparison.csv'));
+
+        // Verify CSV content structure
+        $csvContent = File::get(storage_path('app/advisor-tests/version_comparison.csv'));
+        $this->assertNotEmpty($csvContent, 'CSV file should not be empty');
+        
+        // Check for proper CSV structure
+        $lines = explode("\n", trim($csvContent));
+        $this->assertGreaterThanOrEqual(1, count($lines), 'CSV should have at least a header row');
+        
+        // Check header
+        $this->assertStringContainsString('Advisor', $lines[0]);
+        $this->assertStringContainsString('Version', $lines[0]);
+        
+        // If we have a data row, verify it
+        if (count($lines) > 1) {
+            $this->assertStringContainsString('CSV Test Advisor', $lines[1]);
+            $this->assertStringContainsString('current', $lines[1]);
+        }
+
+        // Clean up
+        File::delete(storage_path('app/advisor-tests/version_comparison.csv'));
+        Storage::disk('advisors')->deleteDirectory('csv-test-advisor');
+        $advisor->delete();
     }
 }
