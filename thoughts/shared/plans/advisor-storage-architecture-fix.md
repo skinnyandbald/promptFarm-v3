@@ -51,9 +51,20 @@ Stop writing to filesystem by default, making database the sole source of truth 
 **Changes**: Remove filesystem writes, add optional file export flag
 
 ```php
-public function generateAdvisor($advisorData, $version = 'v1', ?callable $progressCallback = null, bool $exportFiles = false): array
+use Illuminate\Support\Str;
+
+class AdvisorGenerationService
+{
+    private ?int $currentJobId = null;
+    private ?string $lastExportTimestamp = null;
+    
+    public function generateAdvisor($advisorData, $version = 'v1', ?callable $progressCallback = null, bool $exportFiles = false): array
 {
     // ... existing generation logic ...
+    
+    // Store the current job ID for reference in helper methods
+    $this->currentJobId = $metadata['job_id'] ?? null;
+    $this->lastExportTimestamp = now()->format('Y-m-d');
     
     // Remove these lines:
     // Storage::disk('advisors')->put($piPath, $piContent);
@@ -79,17 +90,86 @@ public function generateAdvisor($advisorData, $version = 'v1', ?callable $progre
 private function exportToFiles($advisorData, $piContent, $pkContent, $metadata): void
 {
     $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown';
-    $pascalName = str_replace(' ', '', ucwords(str_replace('-', ' ', $advisorName)));
-    $timestamp = now()->format('Y-m-d');
-    $jobId = $metadata['job_id'] ?? 'unknown';
     
-    $basePath = "advisors/{$advisorName}/{$timestamp}-job-{$jobId}";
+    // Sanitize directory name using slug (handles spaces, special chars, prevents traversal)
+    $slugifiedName = Str::slug($advisorName);
+    
+    // Create PascalCase name with only alphanumeric characters (A-Z0-9)
+    $cleanName = preg_replace('/[^a-zA-Z0-9\s\-]/', '', $advisorName);
+    $pascalName = str_replace(' ', '', ucwords(str_replace('-', ' ', $cleanName)));
+    $pascalName = preg_replace('/[^A-Za-z0-9]/', '', $pascalName); // Whitelist A-Z0-9 only
+    
+    // Sanitize timestamp and job ID
+    $timestamp = now()->format('Y-m-d');
+    $jobId = isset($metadata['job_id']) ? (int) $metadata['job_id'] : 0;
+    $safeJobId = max(0, $jobId); // Ensure non-negative integer
+    
+    // Build safe path with sanitized components
+    $basePath = "advisors/{$slugifiedName}/{$timestamp}-job-{$safeJobId}";
     Storage::disk('advisors')->makeDirectory($basePath);
     
-    // Use correct naming: AlexBogusky_PI.md, AlexBogusky_PK.md
+    // Use sanitized naming: AlexBogusky_PI.md, AlexBogusky_PK.md
     Storage::disk('advisors')->put("{$basePath}/{$pascalName}_PI.md", $piContent);
     Storage::disk('advisors')->put("{$basePath}/{$pascalName}_PK.md", $pkContent);
     Storage::disk('advisors')->put("{$basePath}/metadata.json", json_encode($metadata, JSON_PRETTY_PRINT));
+}
+
+private function getExportedFilePaths($advisorData): ?array
+{
+    // Input validation
+    if (!isset($advisorData['name']) && !isset($advisorData['full_name'])) {
+        return null;
+    }
+    
+    $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown';
+    
+    // Sanitize directory name using slug (consistent with exportToFiles)
+    $slugifiedName = Str::slug($advisorName);
+    
+    // Create PascalCase name with only alphanumeric characters (A-Z0-9)
+    $cleanName = preg_replace('/[^a-zA-Z0-9\s\-]/', '', $advisorName);
+    $pascalName = str_replace(' ', '', ucwords(str_replace('-', ' ', $cleanName)));
+    $pascalName = preg_replace('/[^A-Za-z0-9]/', '', $pascalName); // Whitelist A-Z0-9 only
+    
+    // Get the job ID and timestamp from the current generation context
+    // These are set during generateAdvisor() method execution
+    $timestamp = $this->lastExportTimestamp ?? now()->format('Y-m-d');
+    $jobId = $this->currentJobId ?? 0;
+    $safeJobId = max(0, (int) $jobId);
+    
+    $basePath = "advisors/{$slugifiedName}/{$timestamp}-job-{$safeJobId}";
+    
+    try {
+        // Verify files were actually created
+        $disk = Storage::disk('advisors');
+        $piPath = "{$basePath}/{$pascalName}_PI.md";
+        $pkPath = "{$basePath}/{$pascalName}_PK.md";
+        $metadataPath = "{$basePath}/metadata.json";
+        
+        // Check if files exist
+        if (!$disk->exists($piPath) || !$disk->exists($pkPath) || !$disk->exists($metadataPath)) {
+            return null;
+        }
+        
+        return [
+            'base_path' => $basePath,
+            'pi_file' => $piPath,
+            'pk_file' => $pkPath,
+            'metadata_file' => $metadataPath,
+            'absolute_paths' => [
+                'pi' => $disk->path($piPath),
+                'pk' => $disk->path($pkPath),
+                'metadata' => $disk->path($metadataPath),
+            ]
+        ];
+    } catch (\Exception $e) {
+        // Log error and return null on any storage exceptions
+        \Log::error('Failed to get exported file paths', [
+            'advisor' => $advisorName,
+            'error' => $e->getMessage()
+        ]);
+        return null;
+    }
 }
 ```
 
@@ -152,6 +232,62 @@ public function handle(AdvisorGenerationService $service): void
 - [ ] All tests pass: `php artisan test`
 - [ ] No filesystem writes in production mode: `grep -r "Storage::disk('advisors')" app/Services/AdvisorGenerationService.php` returns only conditional exports
 
+#### Unit Tests for getExportedFilePaths:
+```php
+// Test: Returns null when exportFiles is false
+public function test_get_exported_file_paths_returns_null_when_no_export()
+{
+    $service = new AdvisorGenerationService();
+    $result = $service->generateAdvisor($advisorData, 'v1', null, false);
+    $this->assertNull($result['exported_files']);
+}
+
+// Test: Returns file paths when files are exported
+public function test_get_exported_file_paths_returns_paths_when_exported()
+{
+    $service = new AdvisorGenerationService();
+    $advisorData = ['name' => 'Test Advisor', 'full_name' => 'Test Full Advisor'];
+    $result = $service->generateAdvisor($advisorData, 'v1', null, true);
+    
+    $this->assertNotNull($result['exported_files']);
+    $this->assertArrayHasKey('base_path', $result['exported_files']);
+    $this->assertArrayHasKey('pi_file', $result['exported_files']);
+    $this->assertArrayHasKey('pk_file', $result['exported_files']);
+    $this->assertArrayHasKey('metadata_file', $result['exported_files']);
+    $this->assertStringContainsString('test-full-advisor', $result['exported_files']['base_path']);
+    $this->assertStringContainsString('TestFullAdvisor_PI.md', $result['exported_files']['pi_file']);
+}
+
+// Test: Handles invalid advisor data gracefully
+public function test_get_exported_file_paths_handles_invalid_data()
+{
+    $service = new AdvisorGenerationService();
+    $invalidData = []; // Missing name and full_name
+    $result = $service->generateAdvisor($invalidData, 'v1', null, true);
+    
+    // Should still generate but with 'Unknown' as name
+    $this->assertArrayHasKey('exported_files', $result);
+    if ($result['exported_files']) {
+        $this->assertStringContainsString('unknown', $result['exported_files']['base_path']);
+    }
+}
+
+// Test: Sanitizes special characters in advisor names
+public function test_get_exported_file_paths_sanitizes_special_characters()
+{
+    $service = new AdvisorGenerationService();
+    $advisorData = ['name' => 'Test@#$%Advisor!!!', 'full_name' => '../../../etc/passwd'];
+    $result = $service->generateAdvisor($advisorData, 'v1', null, true);
+    
+    $this->assertNotNull($result['exported_files']);
+    // Should be sanitized to safe paths
+    $this->assertStringNotContainsString('..', $result['exported_files']['base_path']);
+    $this->assertStringNotContainsString('@', $result['exported_files']['base_path']);
+    $this->assertStringNotContainsString('#', $result['exported_files']['base_path']);
+    $this->assertStringContainsString('etc-passwd', $result['exported_files']['base_path']);
+}
+```
+
 #### Manual Verification:  
 - [ ] Generated files use correct naming: AlexBogusky_PI.md, AlexBogusky_PK.md
 - [ ] API responses contain complete PI/PK content
@@ -169,7 +305,7 @@ Add tagging system to advisor_generation_jobs table for tracking stable/baseline
 
 #### 1. Database Migration
 **File**: `database/migrations/2025_09_02_add_tagging_to_advisor_generation_jobs.php`
-**Changes**: Add tags and memo columns
+**Changes**: Add tags and memo columns with DB-specific JSON indexing
 
 ```php
 public function up(): void
@@ -177,8 +313,29 @@ public function up(): void
     Schema::table('advisor_generation_jobs', function (Blueprint $table) {
         $table->json('tags')->nullable()->after('quality_report');
         $table->text('memo')->nullable()->after('tags');
-        $table->index('tags');
     });
+
+    // Database-specific JSON indexing strategies
+    $driver = DB::connection()->getDriverName();
+    
+    switch ($driver) {
+        case 'pgsql':
+            // PostgreSQL: Convert to JSONB and add GIN index
+            DB::statement('ALTER TABLE advisor_generation_jobs ALTER COLUMN tags TYPE JSONB USING tags::JSONB');
+            DB::statement('CREATE INDEX idx_advisor_generation_jobs_tags ON advisor_generation_jobs USING GIN (tags)');
+            break;
+            
+        case 'mysql':
+        case 'mariadb':
+            // MySQL/MariaDB: JSON columns don't support direct indexing
+            // Use JSON_CONTAINS or JSON_SEARCH functions for queries
+            // Or create generated columns for specific paths if needed
+            break;
+            
+        case 'sqlite':
+            // SQLite: No JSON indexing, use json_extract() in queries
+            break;
+    }
 }
 ```
 
@@ -331,6 +488,9 @@ Add ability to export any tagged version to files without re-running LLM.
 **Changes**: Create command to export from database
 
 ```php
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
+
 protected $signature = 'advisor:export 
                        {advisor : The advisor key}
                        {--tag= : Export specific tagged version}
@@ -343,14 +503,27 @@ public function handle(): int
     
     $job = null;
     if ($this->option('tag')) {
+        // Scope query to advisor_key when using tag
         $job = AdvisorGenerationJob::where('advisor_key', $advisorKey)
             ->withTag($this->option('tag'))
             ->where('status', AdvisorGenerationJob::STATUS_COMPLETED)
             ->latest()
             ->first();
     } elseif ($this->option('job-id')) {
+        // Find job and verify it belongs to the advisor and is completed
         $job = AdvisorGenerationJob::find($this->option('job-id'));
+        
+        if ($job && ($job->advisor_key !== $advisorKey)) {
+            $this->error("Job #{$this->option('job-id')} does not belong to advisor '{$advisorKey}'");
+            return 1;
+        }
+        
+        if ($job && $job->status !== AdvisorGenerationJob::STATUS_COMPLETED) {
+            $this->error("Job #{$this->option('job-id')} is not completed (status: {$job->status})");
+            return 1;
+        }
     } elseif ($this->option('latest')) {
+        // Scope query to advisor_key when using latest
         $job = AdvisorGenerationJob::where('advisor_key', $advisorKey)
             ->where('status', AdvisorGenerationJob::STATUS_COMPLETED)
             ->latest()
@@ -364,17 +537,39 @@ public function handle(): int
 
     $advisor = $job->advisor;
     $advisorName = $advisor->full_name ?? $advisor->name ?? 'Unknown';
-    $pascalName = str_replace(' ', '', ucwords(str_replace('-', ' ', $advisorName)));
+    
+    // Sanitize advisor name for safe file/directory names
+    $slugifiedName = Str::slug($advisorName);
+    $pascalName = str_replace(' ', '', ucwords(str_replace('-', ' ', $slugifiedName)));
     
     $timestamp = now()->format('Y-m-d-H-i-s');
-    $basePath = "advisors/{$advisorName}/exports/{$timestamp}";
+    $basePath = "advisors/{$slugifiedName}/exports/{$timestamp}";
     
     Storage::disk('advisors')->makeDirectory($basePath);
     Storage::disk('advisors')->put("{$basePath}/{$pascalName}_PI.md", $job->pi_content);
     Storage::disk('advisors')->put("{$basePath}/{$pascalName}_PK.md", $job->pk_content);
     
+    // Export metadata.json to mirror the generate flow
+    $metadata = [
+        'job_id' => $job->id,
+        'advisor_key' => $job->advisor_key,
+        'status' => $job->status,
+        'tags' => $job->tags ?? [],
+        'tag' => $this->option('tag') ?? null,
+        'memo' => $job->memo ?? null,
+        'timestamp' => $job->created_at->toIso8601String(),
+        'exported_at' => now()->toIso8601String(),
+        'version' => $job->version ?? null,
+        'quality_report' => $job->quality_report ?? null,
+    ];
+    
+    Storage::disk('advisors')->put(
+        "{$basePath}/metadata.json", 
+        json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+    );
+    
     $this->info("Exported job #{$job->id} to: {$basePath}");
-    $this->info("Files: {$pascalName}_PI.md, {$pascalName}_PK.md");
+    $this->info("Files: {$pascalName}_PI.md, {$pascalName}_PK.md, metadata.json");
     
     return 0;
 }
@@ -385,14 +580,19 @@ public function handle(): int
 #### Automated Verification:
 - [ ] Export command works: `php artisan advisor:export bogusky --latest`
 - [ ] Tagged export works: `php artisan advisor:export bogusky --tag=stable`
-- [ ] Files created with correct naming: `Storage::disk('advisors')->exists('alex-bogusky/exports/.../AlexBogusky_PI.md')`
+- [ ] Job-ID validation works: `php artisan advisor:export wrong-advisor --job-id=15` returns error
+- [ ] Completion status verified: Export fails for incomplete jobs
+- [ ] Files created with sanitized naming: `Storage::disk('advisors')->exists('alex-bogusky/exports/.../AlexBogusky_PI.md')`
+- [ ] Metadata file created: `Storage::disk('advisors')->exists('alex-bogusky/exports/.../metadata.json')`
 - [ ] Content matches database: `file_get_contents() === $job->pi_content`
 
 #### Manual Verification:
 - [ ] Exported files contain complete, correct content
-- [ ] File naming follows AlexBogusky_PI.md pattern
+- [ ] File naming follows AlexBogusky_PI.md pattern with sanitized paths
+- [ ] metadata.json contains job_id, advisor_key, status, tags, timestamp
 - [ ] Can export any tagged version without LLM calls
 - [ ] Export timestamps prevent overwrites
+- [ ] Directory names are safe (no special characters, spaces sanitized)
 
 ---
 
@@ -443,7 +643,8 @@ public function handle(): int
     $cutoff = now()->subDays($days);
     
     // Find directories older than cutoff that don't contain tagged versions
-    $directories = Storage::disk('advisors')->directories('advisors');
+    // The 'advisors' disk is already scoped to the advisors root, so list from root
+    $directories = Storage::disk('advisors')->directories();
     
     foreach ($directories as $advisorDir) {
         $this->cleanupAdvisorDirectory($advisorDir, $cutoff, $dryRun);

@@ -74,4 +74,5 @@ chat:
   auto_reply: true
 
 # Early access features
+# Early access features
 early_access: false
