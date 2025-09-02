@@ -74,7 +74,7 @@ Implement the empirically-validated prompt engineering improvements:
 2. **Add pre-validation loop** in generatePK() method:
    - Check for placeholder text like `[company]` or `{{}}`
    - Validate sentence length averages (max 15 words)
-   - Score content and retry if below 80% quality threshold
+   - Score content for quality feedback and improvement
    - Maximum 3 attempts before accepting best result
 
 3. **Switch to optimized model configuration**:
@@ -372,7 +372,7 @@ Update advisor configuration to support standalone advisor + PlayerContext stage
 1. **Stage 1 Configurations**:
    - Add prompt engineering settings (specificity requirements, voice calibration)
    - Configure model selection (gpt-4-turbo-preview vs deep research)
-   - Set quality thresholds and validation rules (minimum 80% score)
+   - Set quality validation rules for comprehensive feedback
    - Define voice pattern enforcement settings
    - Configure export format options
 
