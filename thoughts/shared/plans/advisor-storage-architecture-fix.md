@@ -169,7 +169,7 @@ Add tagging system to advisor_generation_jobs table for tracking stable/baseline
 
 #### 1. Database Migration
 **File**: `database/migrations/2025_09_02_add_tagging_to_advisor_generation_jobs.php`
-**Changes**: Add tags and memo columns
+**Changes**: Add tags and memo columns with DB-specific JSON indexing
 
 ```php
 public function up(): void
@@ -177,8 +177,29 @@ public function up(): void
     Schema::table('advisor_generation_jobs', function (Blueprint $table) {
         $table->json('tags')->nullable()->after('quality_report');
         $table->text('memo')->nullable()->after('tags');
-        $table->index('tags');
     });
+
+    // Database-specific JSON indexing strategies
+    $driver = DB::connection()->getDriverName();
+    
+    switch ($driver) {
+        case 'pgsql':
+            // PostgreSQL: Convert to JSONB and add GIN index
+            DB::statement('ALTER TABLE advisor_generation_jobs ALTER COLUMN tags TYPE JSONB USING tags::JSONB');
+            DB::statement('CREATE INDEX idx_advisor_generation_jobs_tags ON advisor_generation_jobs USING GIN (tags)');
+            break;
+            
+        case 'mysql':
+        case 'mariadb':
+            // MySQL/MariaDB: JSON columns don't support direct indexing
+            // Use JSON_CONTAINS or JSON_SEARCH functions for queries
+            // Or create generated columns for specific paths if needed
+            break;
+            
+        case 'sqlite':
+            // SQLite: No JSON indexing, use json_extract() in queries
+            break;
+    }
 }
 ```
 
