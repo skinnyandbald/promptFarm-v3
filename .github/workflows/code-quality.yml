@@ -169,7 +169,6 @@ jobs:
   
   frontend-quality:
     runs-on: ubuntu-latest
-    if: hashFiles('package.json') != ''
     
     steps:
       - name: Checkout code
