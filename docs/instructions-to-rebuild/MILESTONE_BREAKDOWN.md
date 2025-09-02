@@ -9,15 +9,16 @@
 ## The Real Architecture
 
 ### Core System (Laravel - Where the Magic Happens):
-- Meta templates that generate PI/PK files
-- LLM integration for content generation
-- **Council orchestration is the key innovation**
-- Individual advisor quality: 70% is good enough
-- Council interaction quality: This is where we innovate
+- Meta templates with hybrid PI generation (deterministic + enhancement)
+- Analytical tensions framework for PK generation (NOT deep research)
+- **Council orchestration is the key innovation** (M1+)
+- Individual advisor quality: 80%+ with analytical tensions
+- Model Strategy: gpt-4o-mini (PK), Grok-3 via OpenRouter (PI enhancement)
 
 ### Testing Approach (CLI‑First):
 - Generate advisors and review PI/PK files directly from `storage/app/advisor-files`
 - Primary: test single advisor first; councils after single‑advisor quality
+- Focus on authenticity metrics: confrontational tone, specificity, uncomfortable truths
 - Avoid building UI until advisor docs meet quality gates
 
 ## Strategic Prioritization: Why Single-Advisor First?
@@ -28,9 +29,11 @@
 - Councils come after single-advisor quality gates are consistently met
 
 ### Quality Strategy
-- **Individual Advisors:** 70% authenticity is sufficient
-- **Council Orchestration:** This needs to be excellent
-- **Iteration Approach:** Ship councils → Learn what matters → Improve targeted aspects
+- **Individual Advisors:** 80%+ authenticity via analytical tensions
+- **PI Generation:** Hybrid approach (deterministic base + Grok enhancement)
+- **PK Generation:** Analytical tensions framework with gpt-4o-mini
+- **Council Orchestration:** This needs to be excellent (M1+)
+- **No Deep Research:** PK is narrative construction, not reasoning task
 
 ## Hour 1: Generate and Review (30–45 min)
 **Goal:** Quick way to test PI/PK files via CLI
@@ -80,7 +83,7 @@ php artisan pest:install --no-interaction
 
 # Env + key + defaults
 php -r "copy('.env.example','.env');" && php artisan key:generate --no-interaction
-printf "\nQUEUE_CONNECTION=sync\nOPENAI_API_KEY=sk-openai-...\nOPENROUTER_API_KEY=sk-or-...\nADVISOR_DEEP_PROVIDER=openai\nADVISOR_DEEP_MODEL_OPENAI=o3-deep\nADVISOR_DEEP_MODEL_OPENROUTER=openai/gpt-5\nADVISOR_LIGHT_MODEL=gpt-5-mini\n" >> .env
+printf "\nQUEUE_CONNECTION=sync\nOPENAI_API_KEY=sk-openai-...\nOPENROUTER_API_KEY=sk-or-...\nOPENAI_MODEL_PK=gpt-4o-mini\nOPENROUTER_MODEL_PI_ENHANCE=x-ai/grok-3\n" >> .env
 
 # Optional SQLite
 mkdir -p database && touch database/database.sqlite
@@ -113,14 +116,18 @@ EOF
 
 Note: Redis/Horizon come later (M1+) once generation surfaces async needs.
 
-**Configure Services (OpenRouter optional for light tasks)**
+**Configure Services (Hybrid Model Approach)**
 ```php
 // config/services.php
 return [
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+        'pk_model' => env('OPENAI_MODEL_PK', 'gpt-4o-mini'),  // PK generation
+    ],
     'openrouter' => [
         'key' => env('OPENROUTER_API_KEY'),
         'base_url' => 'https://openrouter.ai/api/v1',
-        'default_model' => 'openai/gpt-5-mini',
+        'pi_enhancement_model' => env('OPENROUTER_MODEL_PI_ENHANCE', 'x-ai/grok-3'),  // PI enhancement
     ],
 ];
 ```
@@ -241,40 +248,52 @@ class LLMIntegrationService
     
     public function generatePI(string $template, array $advisorData): string
     {
-        // PI is deterministic - just variable substitution
-        Log::info('Building PI for ' . $advisorData['name']);
+        // Stage 1: Deterministic template substitution
+        Log::info('Stage 1: Building PI base for ' . $advisorData['name']);
         
         $piContent = $this->preparePrompt($template, $advisorData);
         
-        // Add timestamp and generation ID for tracking
-        $piContent = str_replace('{{generated_date}}', now()->format('Y-m-d'), $piContent);
-        $piContent = str_replace('{{generation_id}}', uniqid('gen_'), $piContent);
+        // Stage 2: Enhance with Grok-3 via OpenRouter
+        Log::info('Stage 2: Enhancing PI with examples');
         
-        return $piContent;
+        $enhancementPrompt = "Add specific examples and uncomfortable truths to this PI: \n\n" . $piContent;
+        
+        $response = $this->client->chat()->create([
+            'model' => config('services.openrouter.pi_enhancement_model', 'x-ai/grok-3'),
+            'messages' => [
+                ['role' => 'user', 'content' => $enhancementPrompt]
+            ],
+            'temperature' => 0.3,  // Lower for consistency
+            'max_tokens' => 5000,
+        ]);
+        
+        return $response->choices[0]->message->content;
     }
     
     public function generatePK(string $template, array $advisorData): string
     {
-        // PK needs LLM generation for rich content
-        $prompt = $this->preparePrompt($template, $advisorData);
+        // PK uses analytical tensions framework (NOT deep research)
+        $prompt = $this->buildAnalyticalTensionsPrompt($template, $advisorData);
         
-        Log::info('Generating PK content for ' . $advisorData['name']);
+        Log::info('Generating PK with analytical tensions for ' . $advisorData['name']);
         
-        // Add specific instructions for the LLM
-        $systemPrompt = "You are creating Project Knowledge for {$advisorData['name']}. " .
-                       "Include specific real examples from their work, actual case studies with metrics, " .
-                       "signature phrases they would use, and frameworks they've developed. " .
-                       "Be extremely specific - no generic business advice.";
+        // Analytical tensions system prompt
+        $systemPrompt = "Generate uncomfortable truths for {$advisorData['name']} using analytical tensions:\n" .
+                       "1. Paradox: What everyone believes vs reality\n" .
+                       "2. Evidence: Specific companies, real numbers\n" .
+                       "3. Constraint: Why problems persist\n" .
+                       "4. Uncomfortable Truth: What to do instead\n" .
+                       "Be confrontational. Name names. Show receipts.";
         
-        // Use Claude for PK (better at detailed knowledge)
-        $response = $this->client->chat()->create([
-            'model' => 'anthropic/claude-3-opus', // OpenRouter format
+        // Use gpt-4o-mini for PK with analytical tensions
+        $response = $this->openaiClient->chat()->create([
+            'model' => config('services.openai.pk_model', 'gpt-4o-mini'),
             'messages' => [
                 ['role' => 'system', 'content' => $systemPrompt],
                 ['role' => 'user', 'content' => $prompt]
             ],
-            'temperature' => 0.7,
-            'max_tokens' => 6000,
+            'temperature' => 0.75,  // Optimal range: 0.7-0.85
+            'max_tokens' => 8000,
         ]);
         
         $pkContent = $response->choices[0]->message->content;
@@ -1670,6 +1689,56 @@ $councilPI = $dynamicService->generateCouncilPI($hybridCouncil);
 
 ---
 
+## Temperature Settings & Quality Focus
+
+### Optimal Temperature Configuration
+Based on lessons learned, temperature settings are critical for quality:
+
+| Advisor Type | Temperature | Rationale |
+|--------------|-------------|-------|
+| Technical (Henderson) | 0.7 | Precision and accuracy critical |
+| Copywriting (Halbert) | 0.7 | Name accuracy and clean copy essential |
+| Business (Hormozi) | 0.8 | Balance of data accuracy and personality |
+| Creative (Bogusky) | 0.85 | Can handle higher creativity without breaking |
+| **NEVER USE** | 0.9+ | Causes hallucinations, name corruption, token repetition |
+
+### Quality Through Authenticity (Not Compliance)
+The real quality metrics that matter:
+- **Confrontational Tone**: Challenges user thinking
+- **Specific Examples**: Real companies, actual numbers
+- **First-Person Voice**: Consistent "I", "my", "I've" usage
+- **Uncomfortable Truths**: What users need to hear, not want to hear
+- **Template Compliance Scores Are Bullshit**: They measure wrong things
+
+### Analytical Tensions Framework (The Secret Sauce)
+This is how we achieve quality WITHOUT deep research models:
+
+```php
+// Build analytical tensions for each advisor
+private function buildAnalyticalTensionsPrompt($advisorData): string
+{
+    return "
+    Generate {$advisorData['name']}'s expertise using analytical tensions:
+    
+    1. PARADOX: What everyone believes vs reality
+       Example: 'Everyone thinks viral marketing is about luck. 
+                It's actually about cultural tension points.'
+    
+    2. EVIDENCE: Specific companies, real numbers
+       Example: 'Burger King's Subservient Chicken: 500M views, 
+                $80M sales increase, 14% market share gain'
+    
+    3. CONSTRAINT: Why problems persist
+       Example: 'CMOs last 18 months on average because they 
+                optimize for safety, not effectiveness'
+    
+    4. UNCOMFORTABLE TRUTH: What to do instead
+       Example: 'Fire your agency if they show you mood boards. 
+                You need enemies, not aesthetics.'
+    ";
+}
+```
+
 ## Summary: What We're Building
 
 ### Phase 1: Foundation (Days 1-2)
@@ -1709,11 +1778,12 @@ $councilPI = $dynamicService->generateCouncilPI($hybridCouncil);
 - ❌ Production deployment
 
 ### What Makes This Different
-- **PI is deterministic** - Template substitution, no LLM
-- **PK uses LLM enrichment** - But what format works best? We test first!
-- **Voice experimentation phase** - 20-30 min tests before councils
+- **Hybrid PI Generation** - Deterministic base + Grok-3 enhancement
+- **PK uses Analytical Tensions** - Standard models beat deep research
+- **Temperature Optimization** - 0.7-0.85 range, never 0.9+
+- **Voice Anchors Essential** - 3-4 sentences establishing identity
 - **Council PI is ONE file** - Orchestrates multiple advisors
-- **Quality gates** - 90% individual quality before councils
+- **Quality Through Authenticity** - Not template compliance scores
 - **Laravel Boost** - Rapid development with MCP integration
 
 ## Voice Experimentation Protocol (Day 2 PM)
