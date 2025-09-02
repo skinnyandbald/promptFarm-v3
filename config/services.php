@@ -37,21 +37,24 @@ return [
 
     'openai' => [
         'api_key' => env('OPENAI_API_KEY'),
-        'model' => env('OPENAI_MODEL', 'gpt-4o'),
-        'pk_model' => env('PK_GENERATION_MODEL', 'gpt-4o'),
-        'pi_enhancement_model' => env('PI_ENHANCEMENT_MODEL', 'gpt-4o-mini'),
+        'organization' => env('OPENAI_ORGANIZATION'),
+        // Legacy configuration - models now in config/ai-models.php
+        'model' => env('OPENAI_MODEL', 'gpt-4o-mini'), // Kept for backward compatibility
         'max_tokens' => env('OPENAI_MAX_TOKENS', 8000),
         'timeout' => env('OPENAI_TIMEOUT', 300),
         'temperature' => env('OPENAI_TEMPERATURE', 0.7),
-        'organization' => env('OPENAI_ORGANIZATION'),
     ],
-    
-    'xai' => [
-        'api_key' => env('XAI_API_KEY'),
-    ],
-    
+
     'openrouter' => [
         'api_key' => env('OPENROUTER_API_KEY'),
+        'base_url' => env('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1'),
+        // Models are configured in config/ai-models.php
+        // This service config only handles API connection details
+    ],
+
+    'xai' => [
+        'api_key' => env('XAI_API_KEY'),
+        // Note: XAI/Grok models are accessed via OpenRouter
     ],
 
     'advisor' => [

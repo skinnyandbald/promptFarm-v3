@@ -20,13 +20,11 @@ return [
     | Core PK generation improvements with enforced specificity and voice.
     |
     */
-    
+
     'stage1' => [
-        // Optimized model configuration for quality + speed
-        'model' => env('ADVISOR_STAGE1_MODEL', 'gpt-4o'),  // Using gpt-4o for better quality
         'temperature' => 0.4,  // Lower temperature for consistency
-        'max_tokens' => 4000,  // Safe limit for GPT-4 models
-        
+        'max_tokens' => 4000,  // Safe limit for models
+
         // Prompt engineering settings
         'specificity' => [
             'enforce_real_companies' => true,  // Require real company names
@@ -34,7 +32,7 @@ return [
             'enforce_campaign_dates' => true,  // Require actual dates
             'max_placeholder_tolerance' => 0,  // Zero tolerance for placeholders
         ],
-        
+
         // Voice calibration
         'voice' => [
             'enforce_first_person' => true,    // Require "I", "my", "I've"
@@ -42,7 +40,7 @@ return [
             'min_contrarian_positions' => 2,   // Minimum contrarian stances
             'voice_consistency_threshold' => 0.8,
         ],
-        
+
         // Quality thresholds
         'quality' => [
             'minimum_acceptable_score' => 80,  // Don't accept below this
@@ -60,12 +58,8 @@ return [
     | Primary focus on PI-level, secondary on PK-level.
     |
     */
-    
+
     'stage2' => [
-        // Models for personalization (lighter weight for speed)
-        'pi_model' => env('ADVISOR_STAGE2_PI_MODEL', 'gpt-4o-mini'),
-        'pk_model' => env('ADVISOR_STAGE2_PK_MODEL', 'gpt-4o-mini'),
-        
         // PI-level personalization (PRIMARY)
         'pi_personalization' => [
             'adapt_communication_style' => true,
@@ -73,7 +67,7 @@ return [
             'inject_player_context' => true,
             'personalize_examples' => true,
         ],
-        
+
         // PK-level personalization (SECONDARY)
         'pk_personalization' => [
             'filter_by_relevance' => true,     // Don't remove, just reorder
@@ -81,7 +75,7 @@ return [
             'maintain_all_content' => true,    // Never remove expertise
             'add_relevance_notes' => true,     // Add context connections
         ],
-        
+
         // Context integration preferences
         'context_injection' => [
             'include_in_pi' => true,
@@ -98,7 +92,7 @@ return [
     | Settings for exporting advisors to ChatGPT.
     |
     */
-    
+
     'export' => [
         // Format options
         'formats' => [
@@ -112,7 +106,7 @@ return [
                 'max_size' => 60000,   // ~15k tokens
             ],
         ],
-        
+
         // ChatGPT compatibility
         'chatgpt' => [
             'optimize_for_gpt4' => true,
@@ -129,7 +123,7 @@ return [
     | Simple quality measurement for external deployment.
     |
     */
-    
+
     'quality' => [
         // Thresholds
         'thresholds' => [
@@ -138,13 +132,13 @@ return [
             'excellent' => 85,
             'alert_below' => 50,
         ],
-        
+
         // Scoring weights
         'weights' => [
             'pi_weight' => 0.4,
             'pk_weight' => 0.6,  // PK weighted higher based on research
         ],
-        
+
         // Periodic sampling
         'sampling' => [
             'enabled' => true,
@@ -152,7 +146,7 @@ return [
             'sample_size' => 3,
             'advisor_types' => ['strategic', 'contrarian', 'analytical'],
         ],
-        
+
         // Alerts
         'alerts' => [
             'enabled' => true,
@@ -160,6 +154,5 @@ return [
             'channels' => ['log', 'cache'],
         ],
     ],
-
 
 ];
