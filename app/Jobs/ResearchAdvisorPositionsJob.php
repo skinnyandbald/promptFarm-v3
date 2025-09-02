@@ -116,25 +116,62 @@ NO explanations. NO context. Just the core contrarian beliefs.
 Start immediately with "POSITION 1:"
 PROMPT;
 
-        Log::info('ResearchAdvisorPositionsJob: Calling fact-checking AI', [
-            'advisor' => $this->advisorKey,
-            'model' => config('ai-models.purposes.fact_checking'),
-        ]);
-
-        $positions = $llmService->generateText(
-            $prompt,
-            [
-                'model' => config('ai-models.purposes.fact_checking'),
-                'temperature' => 0.1,
-                'max_tokens' => (int) 2000,
-            ]
-        );
+        $maxRetries = 3;
+        $attempt = 1;
         
-        Log::info('ResearchAdvisorPositionsJob: Completed fact-checking', [
+        while ($attempt <= $maxRetries) {
+            Log::info('ResearchAdvisorPositionsJob: Calling fact-checking AI', [
+                'advisor' => $this->advisorKey,
+                'model' => config('ai-models.purposes.fact_checking'),
+                'attempt' => $attempt,
+            ]);
+
+            $positions = $llmService->generateText(
+                $prompt,
+                [
+                    'model' => config('ai-models.purposes.fact_checking'),
+                    'temperature' => 0.1,
+                    'max_tokens' => (int) 2000,
+                ]
+            );
+            
+            if ($this->validatePositionFormat($positions)) {
+                Log::info('ResearchAdvisorPositionsJob: Valid format generated', [
+                    'advisor' => $this->advisorKey,
+                    'length' => strlen($positions),
+                    'attempt' => $attempt,
+                ]);
+                return $positions;
+            }
+            
+            Log::warning('ResearchAdvisorPositionsJob: Invalid format, retrying', [
+                'advisor' => $this->advisorKey,
+                'attempt' => $attempt,
+                'max_retries' => $maxRetries,
+            ]);
+            
+            $attempt++;
+        }
+        
+        Log::error('ResearchAdvisorPositionsJob: Failed to generate valid format after max retries', [
             'advisor' => $this->advisorKey,
-            'length' => strlen($positions),
+            'max_retries' => $maxRetries,
         ]);
         
         return $positions;
+    }
+    
+    protected function validatePositionFormat(string $positions): bool
+    {
+        $lines = explode("\n", trim($positions));
+        $positionCount = 0;
+        
+        foreach ($lines as $line) {
+            if (preg_match('/^POSITION\s+\d+:/', trim($line))) {
+                $positionCount++;
+            }
+        }
+        
+        return $positionCount >= 8;
     }
 }

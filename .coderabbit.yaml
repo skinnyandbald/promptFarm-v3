@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 # CodeRabbit Configuration
 # Documentation: https://docs.coderabbit.ai/guides/configure-coderabbit
 
@@ -73,5 +74,5 @@ chat:
   auto_reply: true
 
 # Early access features
-early_access:
-  enabled: false
+# Early access features
+early_access: false
