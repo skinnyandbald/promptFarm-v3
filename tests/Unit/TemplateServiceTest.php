@@ -162,7 +162,7 @@ MD;
 ## Unclosed variable {{advisor_name
 
 ## Multiple issues
-{{var1}} and {{var2}
+{{var1}} and {{var2}}
 <!-- Unclosed HTML comment
 
 ## More content

@@ -38,8 +38,8 @@ MD;
         // Assert
         $this->assertFalse($result['valid']);
         $this->assertLessThan(75, $result['percentage']);
-        $this->assertContains('Missing section: # Voice Authenticity Anchors', $result['issues']);
-        $this->assertContains('Missing section: # Chain-of-Thought Conditioning', $result['issues']);
+        $this->assertContains('Missing section: ## **Voice Authenticity Anchors**', $result['issues']);
+        $this->assertContains('Missing section: ## **Chain-of-Thought Conditioning**', $result['issues']);
     }
 
     public function test_content_below_line_limits()
@@ -60,7 +60,7 @@ MD;
         $result = $this->qualityService->scorePI($piContent);
 
         // Assert
-        $this->assertContains('Content too short: 6 lines (minimum: 100)', $result['issues']);
+        $this->assertContains('Content too short: 8 lines (minimum: 100)', $result['issues']);
     }
 
     public function test_content_above_line_limits()
@@ -82,22 +82,22 @@ MD;
         $piContent = <<<MD
 # {{advisor_name}} — Project Instruction
 
-## Voice Authenticity Anchors
+## **Voice Authenticity Anchors**
 Communication style: {{communication_style}}
 
-## Chain-of-Thought Conditioning
+## **Chain-of-Thought Conditioning**
 Think step by step
 
-## Core Operating Principles
+## **Core Operating Principles**
 - Principle 1
 
-## Few-Shot Behavioral Priming
+## **Few-Shot Behavioral Priming**
 Examples here
 
-## Domain Expertise Boundaries
+## **Domain Expertise Boundaries**
 Expertise areas
 
-## Response Quality Standards
+## **Response Quality Standards**
 High quality
 MD;
 
@@ -117,22 +117,22 @@ MD;
         $piContent = <<<MD
 # Test Advisor — Project Instruction
 
-## Voice Authenticity Anchors
+## **Voice Authenticity Anchors**
 Content here
 
-## Chain-of-Thought Conditioning
+## **Chain-of-Thought Conditioning**
 <!-- This needs to be replaced with actual examples -->
 
-## Core Operating Principles
+## **Core Operating Principles**
 - Principle 1
 
-## Few-Shot Behavioral Priming
+## **Few-Shot Behavioral Priming**
 <!-- Add few-shot examples here -->
 
-## Domain Expertise Boundaries
+## **Domain Expertise Boundaries**
 Expertise
 
-## Response Quality Standards
+## **Response Quality Standards**
 Standards
 MD;
 
@@ -150,22 +150,22 @@ MD;
         $piContent = <<<MD
 # Test Advisor — Project Instruction
 
-## Voice Authenticity Anchors
+## **Voice Authenticity Anchors**
 The advisor would say this.
 
-## Chain-of-Thought Conditioning
+## **Chain-of-Thought Conditioning**
 From the advisor's perspective, this is important.
 
-## Core Operating Principles
+## **Core Operating Principles**
 As the advisor might suggest, these are key.
 
-## Few-Shot Behavioral Priming
+## **Few-Shot Behavioral Priming**
 The advisor's approach would be this.
 
-## Domain Expertise Boundaries
+## **Domain Expertise Boundaries**
 They would say this is important.
 
-## Response Quality Standards
+## **Response Quality Standards**
 High quality standards
 MD;
 
@@ -184,13 +184,34 @@ MD;
         $piContent = <<<MD
 # Test Advisor — Project Instruction
 
-## Voice Authenticity Anchors
-I speak with clarity and conviction. When I developed the breakthrough strategy at Company X, I learned that direct communication yields the best results.
+## **PK Guardrail**
+Consult PK file.
 
-## Chain-of-Thought Conditioning
-I think step by step: 1) First, I identify the core problem. 2) Then I analyze the available evidence. 3) Finally, I develop a solution based on my experience with similar challenges.
+## **Context**
+You ARE the advisor.
 
-## Core Operating Principles
+## **Constitutional Identity Constraints**
+Never break character.
+
+## **Evidence-Based Prompt Engineering**
+Use research-backed techniques.
+
+## **Chain-of-Thought Conditioning**
+I think step by step: 1) First, I identify the core problem. 2) Then I analyze the available evidence. 3) Finally, I develop a solution based on my experience with similar challenges. I discovered this approach when I built my first strategic framework. I created methodologies that I found to be most effective.
+
+## **Few-Shot Behavioral Priming**
+When I faced the market disruption at TechCorp in 2019, I implemented a three-phase response that resulted in 45% revenue growth. Here's how I approached it:
+- Phase 1: Rapid assessment of market changes
+- Phase 2: Strategic pivot with minimal resource allocation
+- Phase 3: Scale successful experiments
+
+## **Retrieval-Augmented Context**
+Reference specific examples.
+
+## **Constitutional AI Constraints**
+Never provide advice without evidence.
+
+## **Core Operating Principles**
 - I always start with data-driven analysis
 - I challenge assumptions with evidence
 - I focus on measurable outcomes
@@ -198,16 +219,13 @@ I think step by step: 1) First, I identify the core problem. 2) Then I analyze t
 - I prioritize stakeholder alignment
 - I iterate based on feedback
 
-## Few-Shot Behavioral Priming
-When I faced the market disruption at TechCorp in 2019, I implemented a three-phase response that resulted in 45% revenue growth. Here's how I approached it:
-- Phase 1: Rapid assessment of market changes
-- Phase 2: Strategic pivot with minimal resource allocation
-- Phase 3: Scale successful experiments
+## **Voice Authenticity Anchors**
+I speak with clarity and conviction. When I developed the breakthrough strategy at Company X, I learned that direct communication yields the best results.
 
-## Domain Expertise Boundaries
+## **Domain Expertise Boundaries**
 My primary expertise lies in strategic transformation and organizational change. I defer on technical implementation details and legal compliance specifics.
 
-## Response Quality Standards
+## **Response Quality Standards**
 I provide specific, actionable advice based on my documented experience. Every recommendation includes clear next steps with measurable outcomes.
 
 Additional content to meet line requirements...
@@ -253,7 +271,7 @@ MD;
 
         // Assert
         $this->assertArrayHasKey('lineCount', $result);
-        $this->assertEquals(9, $result['lineCount']);
+        $this->assertEquals(15, $result['lineCount']);
     }
 
     public function test_scoring_system_produces_consistent_results()
