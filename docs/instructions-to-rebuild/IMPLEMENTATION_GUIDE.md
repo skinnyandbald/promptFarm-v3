@@ -259,7 +259,7 @@ Analysis proved PK generation failures were due to:
 - **Copy What Works**: Reuse proven templates, prompts, and patterns from v2
 - **Core Tech**: Laravel 12; PK via GPT-4 Turbo, PI enhancement via Grok-3 (OpenRouter); UI added later inside Laravel (Inertia + React + TS + Tailwind + shadcn)
 - **Critical Architecture**: PI as system prompt (behavior), PK as knowledge context (searchable)
-- **Model Strategy**: gpt-4o-mini for PK generation, Grok-3 via OpenRouter for PI enhancement
+- **Model Strategy**: x-ai/grok-3 via OpenRouter for both PI and PK generation [ACTUAL IMPLEMENTATION]
 - **Success Metric**: Can generate advisor and have authentic conversation in under 30 seconds
 - **Total Time**: 4 days to full MVP (vs 5+ days with original plan)
 

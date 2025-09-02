@@ -6,14 +6,14 @@
 **Approach:** Build robust PI/PK generation and validation → Introduce council once single-advisor is strong
 **Success Metric:** Single-advisor passes quality gates; later, councils produce productive disagreement and synthesis
 
-## The Real Architecture
+## The Real Architecture [UPDATED]
 
-### Core System (Laravel - Where the Magic Happens):
-- Meta templates with hybrid PI generation (deterministic + enhancement)
-- Analytical tensions framework for PK generation (NOT deep research)
-- **Council orchestration is the key innovation** (M1+)
-- Individual advisor quality: 80%+ with analytical tensions
-- Model Strategy: gpt-4o-mini (PK), Grok-3 via OpenRouter (PI enhancement)
+### Core System (Laravel - Current Implementation):
+- Meta templates with hybrid PI generation (deterministic + enhancement) ✅
+- Analytical tensions framework for PK generation (NOT deep research) ✅
+- **Council orchestration planned but NOT IMPLEMENTED** ❌
+- Individual advisor quality: 80%+ achieved ✅
+- Model Strategy: x-ai/grok-3 via OpenRouter for BOTH PI and PK [ACTUAL]
 
 ### Testing Approach (CLI‑First):
 - Generate advisors and review PI/PK files directly from `storage/app/advisor-files`
@@ -28,12 +28,12 @@
 - Establish authentic voice, tension protocol, and evidence depth per advisor
 - Councils come after single-advisor quality gates are consistently met
 
-### Quality Strategy
-- **Individual Advisors:** 80%+ authenticity via analytical tensions
-- **PI Generation:** Hybrid approach (deterministic base + Grok enhancement)
-- **PK Generation:** Analytical tensions framework with gpt-4o-mini
-- **Council Orchestration:** This needs to be excellent (M1+)
-- **No Deep Research:** PK is narrative construction, not reasoning task
+### Quality Strategy [IMPLEMENTATION STATUS]
+- **Individual Advisors:** 80%+ authenticity achieved ✅
+- **PI Generation:** Hybrid approach implemented ✅
+- **PK Generation:** Analytical tensions with x-ai/grok-3 [CHANGED] ✅
+- **Council Orchestration:** NOT IMPLEMENTED ❌
+- **Position Research:** NEW FEATURE - Fact-checking system added ✅
 
 ## Hour 1: Generate and Review (30–45 min)
 **Goal:** Quick way to test PI/PK files via CLI
@@ -65,8 +65,9 @@ Create `quality-issues.md` and log gaps to fix next.
 
 ---
 
-## Day 1: Build Laravel Generation System (6 hours)
-**Goal:** Create the core PI/PK generation system in Laravel
+## Day 1: Build Laravel Generation System [COMPLETED]
+**Status:** ✅ Core generation system implemented with enhancements
+**Actual Implementation:** More sophisticated than planned with quality validation and position research
 
 ### Milestone 2.1: Set Up Laravel 12 Project (45 minutes)
 
@@ -892,8 +893,9 @@ git commit -m "test: validate quality across multiple advisors"
 
 ---
 
-## Day 3: Generate Council of Advisors (6 hours)
-**Goal:** Generate and test a full 4-advisor council
+## Day 3: Generate Council of Advisors [NOT IMPLEMENTED]
+**Status:** ❌ Council features not built yet
+**Note:** Individual advisor generation is complete, but council orchestration awaits implementation
 
 ### Milestone 4.1: Create Council Generation Command (2 hours)
 
@@ -1096,8 +1098,9 @@ git commit -m "docs: add council testing guide"
 
 ---
 
-## Day 4: Implement Council Mode with Orchestration Layer (6 hours)
-**Goal:** Create a consolidated Council PI that orchestrates multiple advisors (NOT merging individual PIs)
+## Day 4: Implement Council Mode [FUTURE WORK]
+**Status:** ❌ Not implemented - Architecture documented for future development
+**Note:** All council code below represents planned architecture, not current implementation
 
 ### Critical Understanding: Council PI Architecture
 
