@@ -2,21 +2,27 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
-use App\Services\AdvisorGenerationService;
-use App\Services\AdvisorConfigService;
-use App\Services\Validation\AdvisorQualityService;
 use App\Jobs\GenerateAdvisorJob;
 use App\Models\Advisor;
 use App\Models\AdvisorGenerationJob;
-use InvalidArgumentException;
+use App\Services\AdvisorConfigService;
+use App\Services\AdvisorGenerationService;
+use App\Services\Validation\AdvisorQualityService;
 use Exception;
-use Symfony\Component\Console\Helper\ProgressBar;
-use Symfony\Component\Console\Helper\Table;
+use Illuminate\Console\Command;
+use InvalidArgumentException;
 
 class GenerateAdvisor extends Command
 {
-    protected $signature = 'advisor:generate {name? : The advisor key from config} {--all : Generate all advisors} {--template-version=v1 : Template version} {--show-validation : Display detailed validation feedback} {--background : Run generation in background queue} {--poll : Poll background job status} {--export-files : Export generated files to local storage for testing}';
+    protected $signature = 'advisor:generate 
+        {name? : The advisor key from config} 
+        {--all : Generate all advisors} 
+        {--template-version=v1 : Template version} 
+        {--show-validation : Display detailed validation feedback} 
+        {--background : Run generation in background queue} 
+        {--poll : Poll background job status} 
+        {--export-files : Export generated files to local storage for testing}';
+
     protected $description = 'Generate an advisor by key from database (supports background processing with Redis/Horizon)';
 
     public function __construct(
@@ -36,30 +42,32 @@ class GenerateAdvisor extends Command
 
         // Get list of advisors to generate
         $advisorsToGenerate = [];
-        
+
         if ($all) {
             // Generate all advisors from database
             $advisorsToGenerate = Advisor::pluck('key')->unique()->toArray();
-            
+
             if (empty($advisorsToGenerate)) {
-                $this->error("No advisors found in database!");
+                $this->error('No advisors found in database!');
+
                 return 1;
             }
-            
-            $this->info("🎭 Generating ALL advisors: " . implode(', ', $advisorsToGenerate));
+
+            $this->info('🎭 Generating ALL advisors: '.implode(', ', $advisorsToGenerate));
             $this->info("📋 Using template version: {$version}");
         } else {
             $name = $this->argument('name');
-            if (!$name) {
-                $this->error("Please specify an advisor key or use --all flag");
+            if (! $name) {
+                $this->error('Please specify an advisor key or use --all flag');
+
                 return 1;
             }
-            
+
             $advisorsToGenerate = [$name];
-            
+
             $this->info("🎭 Generating advisor: {$name}");
             $this->info("📋 Using template version: {$version}");
-            
+
             // If polling an existing job for single advisor
             if ($poll) {
                 return $this->pollBackgroundJob($name);
@@ -70,30 +78,31 @@ class GenerateAdvisor extends Command
         $results = [];
         foreach ($advisorsToGenerate as $advisorKey) {
             if ($all) {
-                $this->line("\n" . str_repeat('=', 50));
+                $this->line("\n".str_repeat('=', 50));
                 $this->info("Processing: {$advisorKey}");
             }
-            
+
             // If running in background mode
             if ($background) {
                 $this->runInBackground($advisorKey);
                 $results[$advisorKey] = 'queued';
+
                 continue;
             }
-            
+
             // Run generation synchronously
             $result = $this->generateAdvisor($advisorKey, $version);
             $results[$advisorKey] = $result ? 'success' : 'failed';
         }
-        
+
         // Show summary for --all
         if ($all) {
             $this->showAllGenerationSummary($results);
         }
-        
+
         return 0;
     }
-    
+
     protected function generateAdvisor($name, $version)
     {
 
@@ -117,9 +126,9 @@ class GenerateAdvisor extends Command
             // Based on the actual logic of how this works, by the time it gets to generatedVisor, wouldn't it already have generated the knowledge, since that all happens within the generatedVisor method?
             // How can we do this so that the progress is accurate? Do we need to embed the progress part within GeneratedAdvisor? That doesn't make sense. Go through events: what's the best practice here?
             $result = $this->generationService->generateAdvisor(
-                $advisorData, 
-                $version, 
-                null, 
+                $advisorData,
+                $version,
+                null,
                 $this->option('export-files')
             );
 
@@ -136,7 +145,7 @@ class GenerateAdvisor extends Command
             $this->newLine(2);
 
             if ($result['success']) {
-                $this->info("✅ Advisor generated successfully!");
+                $this->info('✅ Advisor generated successfully!');
                 $this->newLine();
 
                 // Display quality scores
@@ -151,21 +160,14 @@ class GenerateAdvisor extends Command
                 // Display file paths if files were exported
                 if ($result['exported_files']) {
                     $this->table(['Component', 'File Path', 'Quality'], [
-                        ['PI (Instructions)', $result['exported_files']['pi'], $quality['pi']['percentage'] . '%'],
-                        ['PK (Knowledge)', $result['exported_files']['pk'], $quality['pk']['percentage'] . '%'],
-                        ['Metadata', $result['exported_files']['metadata'], 'N/A']
+                        ['PI (Instructions)', $result['exported_files']['pi'], $quality['pi']['percentage'].'%'],
+                        ['PK (Knowledge)', $result['exported_files']['pk'], $quality['pk']['percentage'].'%'],
+                        ['Metadata', $result['exported_files']['metadata'], 'N/A'],
                     ]);
 
                     $this->info("📁 Files exported to: storage/app/advisors/{$result['exported_files']['base_path']}");
                 } else {
-                    $this->info("📄 Content generated and stored in database (use --export-files flag to save local files)");
-                }
-
-                // Check quality threshold if specified
-                $threshold = $this->option('quality-threshold');
-                if ($threshold !== null && $quality['summary']['overall_score'] < $threshold) {
-                    $this->warn("⚠️ Quality score ({$quality['summary']['overall_score']}%) is below threshold ({$threshold}%)");
-                    return Command::FAILURE;
+                    $this->info('📄 Content generated and stored in database (use --export-files flag to save local files)');
                 }
 
                 return Command::SUCCESS;
@@ -174,16 +176,18 @@ class GenerateAdvisor extends Command
         } catch (InvalidArgumentException $e) {
             $this->error("❌ Advisor not found: {$name}");
             $this->newLine();
-            $this->info("Available advisors:");
+            $this->info('Available advisors:');
             $advisors = $this->configService->allAdvisors();
             foreach (array_keys($advisors) as $key) {
                 $config = $advisors[$key];
                 $this->line("  - {$key} ({$config['full_name']})");
             }
+
             return Command::FAILURE;
 
         } catch (Exception $e) {
-            $this->error("❌ Generation failed: " . $e->getMessage());
+            $this->error('❌ Generation failed: '.$e->getMessage());
+
             return Command::FAILURE;
         }
     }
@@ -211,8 +215,9 @@ class GenerateAdvisor extends Command
         try {
             $advisor = Advisor::where('key', $name)->first();
 
-            if (!$advisor) {
+            if (! $advisor) {
                 $this->error("❌ Advisor not found: {$name}");
+
                 return Command::FAILURE;
             }
 
@@ -228,24 +233,25 @@ class GenerateAdvisor extends Command
             GenerateAdvisorJob::dispatch($generationJob)
                 ->onQueue(config('advisors.queue.name'));
 
-            $this->info("✅ Advisor generation job queued successfully!");
+            $this->info('✅ Advisor generation job queued successfully!');
             $this->line("📋 Job ID: {$generationJob->id}");
             $this->line("🔄 Status: {$generationJob->status}");
             $this->newLine();
 
-            $this->info("To check status:");
+            $this->info('To check status:');
             $this->comment("  php artisan advisor:generate {$name} --poll");
-            $this->comment("  curl " . url("/api/advisors/jobs/{$generationJob->id}/status"));
+            $this->comment('  curl '.url("/api/advisors/jobs/{$generationJob->id}/status"));
             $this->newLine();
 
-            $this->info("To monitor with Horizon:");
-            $this->comment("  php artisan horizon");
-            $this->comment("  Visit: " . url('/horizon'));
+            $this->info('To monitor with Horizon:');
+            $this->comment('  php artisan horizon');
+            $this->comment('  Visit: '.url('/horizon'));
 
             return Command::SUCCESS;
 
         } catch (Exception $e) {
-            $this->error("❌ Failed to queue job: " . $e->getMessage());
+            $this->error('❌ Failed to queue job: '.$e->getMessage());
+
             return Command::FAILURE;
         }
     }
@@ -261,8 +267,9 @@ class GenerateAdvisor extends Command
                 ->recent()
                 ->first();
 
-            if (!$job) {
+            if (! $job) {
                 $this->error("❌ No generation jobs found for advisor: {$name}");
+
                 return Command::FAILURE;
             }
 
@@ -287,7 +294,7 @@ class GenerateAdvisor extends Command
             // Final status
             if ($job->status === AdvisorGenerationJob::STATUS_COMPLETED) {
                 $this->newLine();
-                $this->info("✅ Generation completed successfully!");
+                $this->info('✅ Generation completed successfully!');
 
                 if ($job->quality_report) {
                     $this->displayQualityScores($job->quality_report);
@@ -297,11 +304,13 @@ class GenerateAdvisor extends Command
             } else {
                 $this->newLine();
                 $this->error("❌ Generation failed: {$job->error_message}");
+
                 return Command::FAILURE;
             }
 
         } catch (Exception $e) {
-            $this->error("❌ Polling failed: " . $e->getMessage());
+            $this->error('❌ Polling failed: '.$e->getMessage());
+
             return Command::FAILURE;
         }
     }
@@ -311,7 +320,7 @@ class GenerateAdvisor extends Command
      */
     protected function displayJobStatus(AdvisorGenerationJob $job): void
     {
-        $statusColor = match($job->status) {
+        $statusColor = match ($job->status) {
             AdvisorGenerationJob::STATUS_PENDING => 'comment',
             AdvisorGenerationJob::STATUS_PROCESSING => 'info',
             AdvisorGenerationJob::STATUS_COMPLETED => 'info',
@@ -350,14 +359,14 @@ class GenerateAdvisor extends Command
         $this->line("   Score: {$quality['pi']['score']}/{$quality['pi']['percentage']}%");
         $this->line("   Lines: {$quality['pi']['lineCount']}");
 
-        if (!empty($quality['pi']['strengths'])) {
+        if (! empty($quality['pi']['strengths'])) {
             $this->info('   ✓ Strengths:');
             foreach ($quality['pi']['strengths'] as $strength) {
                 $this->line("     • {$strength}");
             }
         }
 
-        if (!empty($quality['pi']['issues'])) {
+        if (! empty($quality['pi']['issues'])) {
             $this->warn('   ⚠ Issues:');
             foreach ($quality['pi']['issues'] as $issue) {
                 $this->line("     • {$issue}");
@@ -370,14 +379,14 @@ class GenerateAdvisor extends Command
         $this->line("   Score: {$quality['pk']['score']}/{$quality['pk']['percentage']}%");
         $this->line("   Lines: {$quality['pk']['lineCount']}");
 
-        if (!empty($quality['pk']['strengths'])) {
+        if (! empty($quality['pk']['strengths'])) {
             $this->info('   ✓ Strengths:');
             foreach ($quality['pk']['strengths'] as $strength) {
                 $this->line("     • {$strength}");
             }
         }
 
-        if (!empty($quality['pk']['issues'])) {
+        if (! empty($quality['pk']['issues'])) {
             $this->warn('   ⚠ Issues:');
             foreach ($quality['pk']['issues'] as $issue) {
                 $this->line("     • {$issue}");
@@ -385,7 +394,7 @@ class GenerateAdvisor extends Command
         }
         $this->newLine();
     }
-    
+
     /**
      * Display summary of all advisor generation results
      */
@@ -395,29 +404,33 @@ class GenerateAdvisor extends Command
         $this->line(str_repeat('=', 50));
         $this->info('📊 Generation Summary');
         $this->line(str_repeat('=', 50));
-        
+
         $success = 0;
         $failed = 0;
         $queued = 0;
-        
+
         foreach ($results as $advisor => $status) {
-            $emoji = match($status) {
+            $emoji = match ($status) {
                 'success' => '✅',
                 'failed' => '❌',
                 'queued' => '⏳',
                 default => '❓'
             };
-            
+
             $this->line("{$emoji} {$advisor}: {$status}");
-            
-            if ($status === 'success') $success++;
-            elseif ($status === 'failed') $failed++;
-            elseif ($status === 'queued') $queued++;
+
+            if ($status === 'success') {
+                $success++;
+            } elseif ($status === 'failed') {
+                $failed++;
+            } elseif ($status === 'queued') {
+                $queued++;
+            }
         }
-        
+
         $this->newLine();
         $this->info("Results: {$success} succeeded, {$failed} failed, {$queued} queued");
-        
+
         if ($queued > 0) {
             $this->comment("Use 'php artisan advisor:generate <name> --poll' to check queued jobs");
         }
