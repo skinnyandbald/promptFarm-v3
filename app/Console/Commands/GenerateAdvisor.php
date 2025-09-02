@@ -112,9 +112,12 @@ class GenerateAdvisor extends Command
                 'current_step' => 'Queued for generation',
             ]);
 
+            // Auto-enable export files in local environment
+            $exportFiles = $this->option('export-files') || app()->environment('local');
+
             // Simple dispatch - let Laravel handle sync vs async
             ResearchAdvisorPositionsJob::withChain([
-                new GenerateAdvisorJob($generationJob, $this->option('export-files'))
+                new GenerateAdvisorJob($generationJob, $exportFiles)
             ])->dispatch(
                 $advisor->slug,
                 $advisor->toArray(),
@@ -124,6 +127,10 @@ class GenerateAdvisor extends Command
             // Always return the same way - jobs handle the work
             $this->info('✅ Advisor generation dispatched successfully!');
             $this->line("📋 Job ID: {$generationJob->id}");
+            
+            if ($exportFiles && !$this->option('export-files')) {
+                $this->comment('📁 Export files enabled (local environment)');
+            }
             
             return 'success';
 
