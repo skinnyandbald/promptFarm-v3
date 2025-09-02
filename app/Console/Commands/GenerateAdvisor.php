@@ -11,14 +11,12 @@ use App\Services\AdvisorGenerationService;
 use App\Services\Validation\AdvisorQualityService;
 use Exception;
 use Illuminate\Console\Command;
-use InvalidArgumentException;
 
 class GenerateAdvisor extends Command
 {
     protected $signature = 'advisor:generate 
         {name? : The advisor slug from database} 
         {--all : Generate all advisors} 
-        {--template-version=v1 : Template version} 
         {--show-validation : Display detailed validation feedback} 
         {--poll : Poll background job status} 
         {--export-files : Export generated files to local storage for testing}';
@@ -36,7 +34,6 @@ class GenerateAdvisor extends Command
     public function handle()
     {
         $all = $this->option('all');
-        $version = $this->option('template-version') ?? 'v1';
         $poll = $this->option('poll');
 
         // Get list of advisors to generate
@@ -53,11 +50,10 @@ class GenerateAdvisor extends Command
             }
 
             $this->info('🎭 Generating ALL advisors: '.implode(', ', $advisorsToGenerate));
-            $this->info("📋 Using template version: {$version}");
         } else {
             $name = $this->argument('name');
             if (! $name) {
-                $this->error('Please specify an advisor key or use --all flag');
+                $this->error('Please specify an advisor slug or use --all flag');
 
                 return 1;
             }
@@ -65,7 +61,6 @@ class GenerateAdvisor extends Command
             $advisorsToGenerate = [$name];
 
             $this->info("🎭 Generating advisor: {$name}");
-            $this->info("📋 Using template version: {$version}");
 
             // If polling an existing job for single advisor
             if ($poll) {
@@ -82,7 +77,7 @@ class GenerateAdvisor extends Command
             }
 
             // Always use job dispatch (sync/async determined by queue driver)
-            $result = $this->dispatchAdvisorGeneration($advisorKey, $version);
+            $result = $this->dispatchAdvisorGeneration($advisorKey);
             $results[$advisorKey] = $result;
         }
 
@@ -94,13 +89,14 @@ class GenerateAdvisor extends Command
         return 0;
     }
 
-    protected function dispatchAdvisorGeneration(string $name, string $version): string
+    protected function dispatchAdvisorGeneration(string $name): string
     {
         try {
             $advisor = Advisor::where('slug', $name)->first();
 
-            if (!$advisor) {
+            if (! $advisor) {
                 $this->error("❌ Advisor not found: {$name}");
+
                 return 'failed';
             }
 
@@ -117,7 +113,7 @@ class GenerateAdvisor extends Command
 
             // Simple dispatch - let Laravel handle sync vs async
             ResearchAdvisorPositionsJob::withChain([
-                new GenerateAdvisorJob($generationJob, $exportFiles)
+                new GenerateAdvisorJob($generationJob, $exportFiles),
             ])->dispatch(
                 $advisor->slug,
                 $advisor->toArray(),
@@ -127,19 +123,19 @@ class GenerateAdvisor extends Command
             // Always return the same way - jobs handle the work
             $this->info('✅ Advisor generation dispatched successfully!');
             $this->line("📋 Job ID: {$generationJob->id}");
-            
-            if ($exportFiles && !$this->option('export-files')) {
+
+            if ($exportFiles && ! $this->option('export-files')) {
                 $this->comment('📁 Export files enabled (local environment)');
             }
-            
+
             return 'success';
 
         } catch (Exception $e) {
             $this->error('❌ Generation failed: '.$e->getMessage());
+
             return 'failed';
         }
     }
-
 
     /**
      * Display quality scores in a formatted way
@@ -156,7 +152,6 @@ class GenerateAdvisor extends Command
         $this->newLine();
     }
 
-
     /**
      * Poll status of a background generation job
      */
@@ -165,11 +160,12 @@ class GenerateAdvisor extends Command
         try {
             // Find the most recent job for this advisor
             $advisor = Advisor::where('slug', $name)->first();
-            if (!$advisor) {
+            if (! $advisor) {
                 $this->error("❌ Advisor not found: {$name}");
+
                 return Command::FAILURE;
             }
-            
+
             $job = AdvisorGenerationJob::where('advisor_id', $advisor->id)
                 ->recent()
                 ->first();

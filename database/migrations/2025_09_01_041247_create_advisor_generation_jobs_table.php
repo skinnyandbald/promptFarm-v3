@@ -27,7 +27,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index('status');
-            $table->index('advisor_key');
+            $table->index('advisor_id');
             $table->index(['status', 'created_at']);
         });
     }

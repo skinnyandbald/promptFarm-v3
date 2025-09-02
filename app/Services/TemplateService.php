@@ -119,7 +119,9 @@ class TemplateService
      */
     public function extractVariables(string $template): array
     {
-        preg_match_all('/\{\{([^}]+)\}\}/', $template, $matches);
+        // Match only complete {{variable}} patterns, not malformed ones
+        // Use non-greedy matching and exclude newlines to avoid matching across lines
+        preg_match_all('/\{\{([^}\n]+?)\}\}/', $template, $matches);
         return array_unique($matches[1]);
     }
 

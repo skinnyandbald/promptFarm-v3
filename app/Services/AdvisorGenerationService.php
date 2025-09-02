@@ -20,30 +20,29 @@ class AdvisorGenerationService
      * Generate a complete advisor with PI and PK components
      *
      * @param  array|\App\Models\Advisor  $advisorData  Advisor data array or model
-     * @param  ?string  $version  Template version
      * @param  ?callable  $progressCallback  Optional callback for progress updates
      * @param  bool  $exportFiles  Whether to export files to local storage for testing
+     * @param  ?int  $jobId  Optional job ID for tracking
      */
-    public function generateAdvisor($advisorData, $version = 'v1', ?callable $progressCallback = null, bool $exportFiles = false, ?int $jobId = null): array
+    public function generateAdvisor($advisorData, ?callable $progressCallback = null, bool $exportFiles = false, ?int $jobId = null): array
     {
         // Handle Advisor model if passed
         if ($advisorData instanceof \App\Models\Advisor) {
             $advisor = $advisorData;
             $advisorData = $advisor->toArray();
-            $advisorData['key'] = $advisor->key;
             $advisorData['slug'] = $advisor->slug;
         }
 
         // Check if advisor has researched positions
-        $advisorSlug = $advisorData['slug'] ?? $advisorData['key'] ?? null;
+        $advisorSlug = $advisorData['slug'] ?? null;
         if ($advisorSlug) {
             $hasPositions = \App\Models\AdvisorPosition::where('advisor_slug', $advisorSlug)->exists();
-            
-            if (!$hasPositions) {
+
+            if (! $hasPositions) {
                 Log::info('No positions found for advisor, triggering research', [
                     'advisor_slug' => $advisorSlug,
                 ]);
-                
+
                 // Research will be handled by job chaining when running via queue
                 // For direct service calls (sync mode), run research immediately
                 if (config('queue.default') === 'sync') {
@@ -52,10 +51,9 @@ class AdvisorGenerationService
                         $advisorData,
                         false
                     );
-                    $llmService = app(\App\Services\LLMService::class);
-                    $researchJob->handle($llmService);
+                    $researchJob->handle($this->llmService);
                 }
-                
+
                 Log::info('Research completed, proceeding with generation', [
                     'advisor_slug' => $advisorSlug,
                 ]);
@@ -64,7 +62,6 @@ class AdvisorGenerationService
 
         Log::info('Starting advisor generation', [
             'advisor_name' => $advisorData['name'] ?? 'unknown',
-            'version' => $version,
         ]);
 
         // Report initial progress
@@ -73,15 +70,15 @@ class AdvisorGenerationService
         }
 
         try {
-            // Load config once if key is provided
+            // Load config once if slug is provided
             $mappedVars = [];
-            if (isset($advisorData['key']) && is_string($advisorData['key'])) {
-                $config = $this->configService->getAdvisorConfig($advisorData['key']);
+            if (isset($advisorData['slug']) && is_string($advisorData['slug'])) {
+                $config = $this->configService->getAdvisorConfig($advisorData['slug']);
                 $mappedVars = $this->configService->mapVariables($config);
                 // Merge config data for enhancement
                 $advisorData = array_merge($advisorData, $config);
             }
-            
+
             // Prepare advisor data
             $advisorName = $advisorData['full_name'] ?? $advisorData['fullName'] ?? $advisorData['name'] ?? 'Unknown';
             $sanitizedName = Str::slug($advisorName);
@@ -91,7 +88,7 @@ class AdvisorGenerationService
             if ($progressCallback) {
                 $progressCallback(25, 'Generating PI (Project Instructions)');
             }
-            $piContent = $this->generatePI($advisorData, $version, $mappedVars);
+            $piContent = $this->generatePI($advisorData, $mappedVars);
 
             // Score PI quality
             $piScore = $this->qualityService->scorePI($piContent);
@@ -108,7 +105,7 @@ class AdvisorGenerationService
             if ($progressCallback) {
                 $progressCallback(50, 'Generating PK (Project Knowledge)');
             }
-            $pkContent = $this->generatePK($advisorData, $version, $mappedVars);
+            $pkContent = $this->generatePK($advisorData, $mappedVars);
 
             // Score PK quality
             $pkScore = $this->qualityService->scorePK($pkContent);
@@ -117,7 +114,6 @@ class AdvisorGenerationService
                 'valid' => $pkScore['valid'],
                 'issues' => count($pkScore['issues']),
             ]);
-
 
             // Get overall quality report
             if ($progressCallback) {
@@ -133,7 +129,7 @@ class AdvisorGenerationService
                 'generated_at' => now()->toIso8601String(),
                 'pi_size' => strlen($piContent),
                 'pk_size' => strlen($pkContent),
-                'version' => $version ?? '1.0.0',
+                'version' => '1.0.0', // TODO: shouldn't this a Class const or pulled from the template?
                 'quality' => $qualityReport,
             ];
 
@@ -179,9 +175,10 @@ class AdvisorGenerationService
      * Stage 1: Deterministic template substitution (instant)
      * Stage 2: Lightweight LLM enhancement for examples (2-3 seconds)
      */
-    protected function generatePI(array $advisorData, ?string $version = 'v1', array $mappedVars = []): string
+    protected function generatePI(array $advisorData, array $mappedVars = []): string
     {
-        $templateName = $version ? "meta_pi_template_{$version}" : 'meta_pi_template';
+        // Use v1 template for now (no player context)
+        $templateName = 'meta_pi_template_v1';
 
         // Load template (may throw if not found)
         $template = $this->templateService->loadTemplate($templateName);
@@ -376,9 +373,10 @@ PROMPT;
      * - Pre-validation loop with quality scoring
      * - Voice calibration and consistency checks
      */
-    protected function generatePK(array $advisorData, ?string $version = 'v1', array $mappedVars = []): string
+    protected function generatePK(array $advisorData, array $mappedVars = []): string
     {
-        $templateName = $version ? "meta_pk_template_{$version}" : 'meta_pk_template';
+        // Use v1 template for now (no player context)
+        $templateName = 'meta_pk_template_v1';
 
         $template = $this->templateService->loadTemplate($templateName);
 
@@ -414,7 +412,7 @@ PROMPT;
             // Determine temperature based on advisor type
             // Technical/factual advisors need lower temp for accuracy
             // Creative/controversial advisors can handle higher temp
-            $temperature = match ($advisorData['key'] ?? '') {
+            $temperature = match ($advisorData['slug'] ?? '') {
                 'henderson' => 0.7,  // Technical precision needed
                 'halbert' => 0.7,    // Copywriting needs accuracy
                 'hormozi' => 0.8,    // Business data focus
@@ -564,7 +562,6 @@ PROMPT;
         return $positions;
     }
 
-
     /**
      * Get dynamic position constraints from researched positions
      */
@@ -573,11 +570,12 @@ PROMPT;
         // Get positions directly from database
         $cached = \App\Models\AdvisorPosition::where('advisor_slug', $advisorSlug)->first();
 
-        if (!$cached) {
+        if (! $cached) {
             Log::warning('FACT-CHECK: No researched positions found in database', [
                 'advisor' => $advisorSlug,
-                'suggestion' => 'Run: php artisan advisor:research ' . $advisorSlug,
+                'suggestion' => 'Run: php artisan advisor:research '.$advisorSlug,
             ]);
+
             return 'Maintain internal consistency. Never contradict your own stated beliefs.';
         }
 
@@ -618,7 +616,7 @@ CONSTRAINTS;
         $keyPhrases = $advisorData['key_phrases_or_terminology'] ?? '';
 
         // Load advisor-specific tensions
-        $advisorSlug = $advisorData['slug'] ?? $advisorData['key'] ?? 'default';
+        $advisorSlug = $advisorData['slug'] ?? 'default';
         $tensionsConfig = config("advisor-tensions.{$advisorSlug}", []);
         $tensions = $tensionsConfig['tensions'] ?? [
             'Challenge conventional wisdom in your field',
@@ -830,7 +828,6 @@ PROMPT;
          * full_name of the advisor? (e.g. AlexBogusky_PI.md, AlexBogusky_PK.md)
          * This would allow organizing them all in the same folder and avoid confusion
          * when used in councils or other contexts.
-         *
          */
         $piContent = Storage::get("{$basePath}/PI.md");
         $pkContent = Storage::get("{$basePath}/PK.md");
@@ -1018,13 +1015,13 @@ YAML;
     /**
      * Generate multiple advisors in batch
      */
-    public function generateBatch(array $advisorsData, ?string $version = 'v1', bool $exportFiles = false): array
+    public function generateBatch(array $advisorsData, bool $exportFiles = false): array
     {
         $results = [];
 
         foreach ($advisorsData as $advisorData) {
             try {
-                $results[] = $this->generateAdvisor($advisorData, $version, null, $exportFiles);
+                $results[] = $this->generateAdvisor($advisorData, null, $exportFiles);
             } catch (\Exception $e) {
                 $results[] = [
                     'success' => false,
@@ -1043,28 +1040,28 @@ YAML;
     private function exportToFiles($advisorData, $piContent, $pkContent, $metadata): array
     {
         // Use the slug for directory naming (e.g., 'alex-bogusky', 'alex-hormozi')
-        $advisorSlug = $advisorData['slug'] ?? $advisorData['key'] ?? Str::slug($advisorData['name'] ?? 'unknown');
+        $advisorSlug = $advisorData['slug'] ?? Str::slug($advisorData['name'] ?? 'unknown');
         $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown';
         $pascalName = str_replace(' ', '', ucwords(str_replace('-', ' ', $advisorName)));
         $timestamp = now()->format('Y-m-d');
-        
+
         // Use provided job ID or fallback to uniqid for synchronous runs
         $jobId = $metadata['job_id'] ?? $metadata['generation_id'] ?? uniqid();
-        
+
         // Don't prefix with 'advisors/' - the disk already points there
         // Use advisor slug as the directory name (e.g., 'alex-bogusky')
         $basePath = "{$advisorSlug}/{$timestamp}-job-{$jobId}";
         Storage::disk('advisors')->makeDirectory($basePath);
-        
+
         // Use correct naming: AlexBogusky_PI.md, AlexBogusky_PK.md
         $piPath = "{$basePath}/{$pascalName}_PI.md";
         $pkPath = "{$basePath}/{$pascalName}_PK.md";
         $metadataPath = "{$basePath}/metadata.json";
-        
+
         Storage::disk('advisors')->put($piPath, $piContent);
         Storage::disk('advisors')->put($pkPath, $pkContent);
         Storage::disk('advisors')->put($metadataPath, json_encode($metadata, JSON_PRETTY_PRINT));
-        
+
         Log::info('Files exported to storage', [
             'base_path' => $basePath,
             'pi_file' => $piPath,
@@ -1078,5 +1075,4 @@ YAML;
             'base_path' => $basePath,
         ];
     }
-
 }

@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Jobs\ResearchAdvisorPositionsJob;
 use App\Models\AdvisorGenerationJob;
 use App\Services\AdvisorGenerationService;
 use Illuminate\Bus\Queueable;
@@ -18,7 +17,9 @@ class GenerateAdvisorJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $timeout = 600;
+
     public $tries = 3;
+
     public $backoff = 60;
 
     /**
@@ -40,15 +41,13 @@ class GenerateAdvisorJob implements ShouldQueue
 
         try {
             $advisor = $this->generationJob->advisor;
-            
-            if (!$advisor) {
-                throw new \Exception("Advisor with key '{$this->generationJob->advisor_key}' not found");
-            }
 
+            if (! $advisor) {
+                throw new \Exception("Advisor with slug '{$this->generationJob->advisor_slug}' not found");
+            }
 
             $result = $service->generateAdvisor(
                 $advisor,
-                'v1', // Always use v1 templates
                 function (int $progress, string $step) {
                     $this->generationJob->updateProgress($progress, $step);
                 },
@@ -64,12 +63,12 @@ class GenerateAdvisorJob implements ShouldQueue
 
             $this->generationJob->markAsCompleted();
 
-            Log::info("Advisor generation completed for {$advisor->key}", [
+            Log::info("Advisor generation completed for {$advisor->slug}", [
                 'job_id' => $this->generationJob->id,
-                'advisor_key' => $advisor->key,
+                'advisor_slug' => $advisor->slug,
             ]);
         } catch (Throwable $exception) {
-            Log::error("Advisor generation failed for {$this->generationJob->advisor_key}", [
+            Log::error("Advisor generation failed for {$this->generationJob->advisor_slug}", [
                 'job_id' => $this->generationJob->id,
                 'error' => $exception->getMessage(),
                 'trace' => $exception->getTraceAsString(),

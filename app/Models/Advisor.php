@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 class Advisor extends Model
 {
     use HasFactory;
+
     /**
      * The attributes that are mass assignable.
      *
@@ -49,26 +50,18 @@ class Advisor extends Model
     protected static function boot()
     {
         parent::boot();
-        
+
         static::creating(function ($advisor) {
-            if (empty($advisor->slug) && !empty($advisor->name)) {
+            if (empty($advisor->slug) && ! empty($advisor->name)) {
                 $advisor->slug = Str::slug($advisor->name);
             }
         });
 
         static::updating(function ($advisor) {
-            if ($advisor->isDirty('name') && !$advisor->isDirty('slug')) {
+            if ($advisor->isDirty('name') && ! $advisor->isDirty('slug')) {
                 $advisor->slug = Str::slug($advisor->name);
             }
         });
-    }
-
-    /**
-     * Scope to find advisor by key.
-     */
-    public function scopeByKey($query, string $key)
-    {
-        return $query->where('key', $key);
     }
 
     /**
@@ -94,8 +87,8 @@ class Advisor extends Model
             'industry' => $this->industry,
             'primary_objective' => $this->primary_objective,
             'core_expertise_area' => $this->core_expertise_area,
-            'related_expertise_areas' => is_array($this->related_expertise_areas) 
-                ? implode(', ', $this->related_expertise_areas) 
+            'related_expertise_areas' => is_array($this->related_expertise_areas)
+                ? implode(', ', $this->related_expertise_areas)
                 : $this->related_expertise_areas,
             'communication_style_description' => $this->communication_style_description,
             'decision_making_approach' => $this->decision_making_approach,
