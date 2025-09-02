@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 use App\Models\Advisor;
 use App\Services\AdvisorGenerationService;
@@ -20,8 +21,8 @@ class CompareModelGenerationTest extends TestCase
      * 2. GPT-4 Turbo with structured output
      * 3. Claude 3.5 Sonnet with structured output
      * 
-     * @test
      */
+    #[Test]
     public function it_compares_pk_generation_quality_across_models()
     {
         // Sample advisor for testing

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 use App\Models\User;
 use App\Models\Advisor;
@@ -37,9 +38,8 @@ class AdvisorExportTest extends TestCase
         $this->testUser = User::factory()->create();
         $this->testAdvisor = Advisor::factory()->create([
             'name' => 'Test Advisor',
-            'advisor_type' => 'strategic',
             'core_expertise_area' => 'Marketing Strategy',
-            'key_phrases_or_terminology' => 'ROI, brand equity, market penetration'
+            'key_phrases_or_terminology' => ['ROI', 'brand equity', 'market penetration']
         ]);
         
         // Set up services
@@ -52,7 +52,7 @@ class AdvisorExportTest extends TestCase
      * Stage 1 Tests: Standalone Advisor Generation
      */
     
-    /** @test */
+    #[Test]
     public function test_stage1_pk_generation_quality_improvements()
     {
         // Mock the LLM service to return content with good specificity
@@ -71,7 +71,7 @@ class AdvisorExportTest extends TestCase
         $quality = $result['quality'];
         
         // Target: 85%+ quality score
-        $this->assertGreaterThanOrEqual(85, $quality['overall_percentage']);
+        $this->assertGreaterThanOrEqual(85, $quality['summary']['overall_score']);
         
         // Check for specificity
         $this->assertStringNotContainsString('[company]', $result['pk_content']);
@@ -86,7 +86,7 @@ class AdvisorExportTest extends TestCase
         ]);
     }
     
-    /** @test */
+    #[Test]
     public function test_stage1_voice_consistency_and_specificity()
     {
         $mockPK = <<<PK
@@ -125,7 +125,7 @@ PK;
         $this->assertGreaterThan(5, $voiceCount, 'Should have strong first-person voice');
     }
     
-    /** @test */
+    #[Test]
     public function test_stage1_cost_and_speed_improvements()
     {
         $startTime = microtime(true);
@@ -154,7 +154,7 @@ PK;
         $this->assertTrue($result['success']);
     }
     
-    /** @test */
+    #[Test]
     public function test_stage1_template_artifact_elimination()
     {
         $mockPKWithArtifacts = <<<PK
@@ -188,7 +188,7 @@ PK;
         $this->assertStringNotContainsString('INSERT_', $result['pk_content']);
     }
     
-    /** @test */
+    #[Test]
     public function test_stage1_export_format_quality()
     {
         $this->actingAs($this->testUser);
@@ -229,7 +229,7 @@ PK;
      * Stage 2 Tests: PlayerContext Integration
      */
     
-    /** @test */
+    #[Test]
     public function test_stage2_pi_level_personalization()
     {
         $this->actingAs($this->testUser);
@@ -261,7 +261,7 @@ PK;
         $this->assertStringContainsString('analytical', $result['export_package']['export_metadata']['stage']);
     }
     
-    /** @test */
+    #[Test]
     public function test_stage2_context_aware_responses()
     {
         $playerContext = PlayerContext::factory()->create([
@@ -282,7 +282,7 @@ PK;
         $this->assertStringContainsString('E-commerce', $result['player_context_summary']);
     }
     
-    /** @test */
+    #[Test]
     public function test_stage2_pk_level_context_filtering()
     {
         $playerContext = PlayerContext::factory()->create([
@@ -321,7 +321,7 @@ PK;
         $this->assertStringContainsString('Agile', $pkContent);
     }
     
-    /** @test */
+    #[Test]
     public function test_stage2_personalized_export_quality()
     {
         $this->actingAs($this->testUser);
@@ -353,7 +353,7 @@ PK;
      * Export Quality Tests
      */
     
-    /** @test */
+    #[Test]
     public function test_export_chatgpt_compatibility()
     {
         $result = $this->playerContextService->generatePersonalizedAdvisor(
@@ -379,7 +379,7 @@ PK;
         $this->assertStringContainsString('Setup', $instructions);
     }
     
-    /** @test */
+    #[Test]
     public function test_export_file_download()
     {
         $this->actingAs($this->testUser);
@@ -397,7 +397,7 @@ PK;
      * Simple Quality Measurement Tests
      */
     
-    /** @test */
+    #[Test]
     public function test_generation_time_quality_scoring()
     {
         $piContent = $this->generateMockPIContent();
@@ -418,7 +418,7 @@ PK;
         }
     }
     
-    /** @test */
+    #[Test]
     public function test_quality_trend_tracking()
     {
         // Generate multiple advisors to create trend data
@@ -440,7 +440,7 @@ PK;
         }
     }
     
-    /** @test */
+    #[Test]
     public function test_feedback_collection_and_storage()
     {
         $this->qualityService->collectFeedback(
@@ -456,7 +456,7 @@ PK;
         $this->assertLessThanOrEqual(5, $satisfaction);
     }
     
-    /** @test */
+    #[Test]
     public function test_quality_alert_thresholds()
     {
         // Test low quality alert
@@ -481,7 +481,7 @@ PK;
      * Integration Tests
      */
     
-    /** @test */
+    #[Test]
     public function test_seamless_stage1_to_stage2_progression()
     {
         // Stage 1: Generate standalone advisor
@@ -520,7 +520,7 @@ PK;
         }
     }
     
-    /** @test */
+    #[Test]
     public function test_export_workflow_end_to_end()
     {
         $this->actingAs($this->testUser);
