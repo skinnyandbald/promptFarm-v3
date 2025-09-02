@@ -165,13 +165,24 @@ PROMPT;
     {
         $lines = explode("\n", trim($positions));
         $positionCount = 0;
+        $invalidPositionLines = 0;
         
         foreach ($lines as $line) {
-            if (preg_match('/^POSITION\s+\d+:/', trim($line))) {
-                $positionCount++;
+            $trimmedLine = trim($line);
+            if (empty($trimmedLine)) continue;
+            
+            // Check if this line looks like a position header
+            if (preg_match('/^(POSITION|mel|pos)\s+\d+:/i', $trimmedLine)) {
+                if (preg_match('/^POSITION\s+\d+:/', $trimmedLine)) {
+                    $positionCount++;
+                } else {
+                    // This is a malformed position header (like "mel 3:")
+                    $invalidPositionLines++;
+                }
             }
         }
         
-        return $positionCount >= 8;
+        // Must have at least 8 valid positions AND no invalid position headers
+        return $positionCount >= 8 && $invalidPositionLines === 0;
     }
 }

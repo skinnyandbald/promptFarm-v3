@@ -22,8 +22,9 @@ class AdvisorGenerationService
      * @param  array|\App\Models\Advisor  $advisorData  Advisor data array or model
      * @param  ?string  $version  Template version
      * @param  ?callable  $progressCallback  Optional callback for progress updates
+     * @param  bool  $exportFiles  Whether to export files to local storage for testing
      */
-    public function generateAdvisor($advisorData, $version = 'v1', ?callable $progressCallback = null): array
+    public function generateAdvisor($advisorData, $version = 'v1', ?callable $progressCallback = null, bool $exportFiles = false): array
     {
         // Handle Advisor model if passed
         if ($advisorData instanceof \App\Models\Advisor) {
@@ -43,17 +44,25 @@ class AdvisorGenerationService
         }
 
         try {
-            // Prepare directory structure using the advisors disk
+            // Load config once if key is provided
+            $mappedVars = [];
+            if (isset($advisorData['key']) && is_string($advisorData['key'])) {
+                $config = $this->configService->getAdvisorConfig($advisorData['key']);
+                $mappedVars = $this->configService->mapVariables($config);
+                // Merge config data for enhancement
+                $advisorData = array_merge($advisorData, $config);
+            }
+            
+            // Prepare advisor data
             $advisorName = $advisorData['full_name'] ?? $advisorData['fullName'] ?? $advisorData['name'] ?? 'Unknown';
             $sanitizedName = Str::slug($advisorName);
             $basePath = $sanitizedName;
-            Storage::disk('advisors')->makeDirectory($basePath);
 
             // Generate PI content
             if ($progressCallback) {
                 $progressCallback(25, 'Generating PI (Project Instructions)');
             }
-            $piContent = $this->generatePI($advisorData, $version);
+            $piContent = $this->generatePI($advisorData, $version, $mappedVars);
 
             // Score PI quality
             $piScore = $this->qualityService->scorePI($piContent);
@@ -66,16 +75,11 @@ class AdvisorGenerationService
             // Inject quality metadata into PI
             $piContent = $this->injectQualityMetadata($piContent, $piScore['percentage'], 1, 'PI');
 
-            // Save PI to advisors disk
-            $piPath = "{$basePath}/PI.md";
-            Storage::disk('advisors')->put($piPath, $piContent);
-            Log::info('PI saved', ['path' => $piPath, 'size' => strlen($piContent)]);
-
             // Generate PK content
             if ($progressCallback) {
                 $progressCallback(50, 'Generating PK (Project Knowledge)');
             }
-            $pkContent = $this->generatePK($advisorData, $version);
+            $pkContent = $this->generatePK($advisorData, $version, $mappedVars);
 
             // Score PK quality
             $pkScore = $this->qualityService->scorePK($pkContent);
@@ -85,10 +89,6 @@ class AdvisorGenerationService
                 'issues' => count($pkScore['issues']),
             ]);
 
-            // Save PK to advisors disk
-            $pkPath = "{$basePath}/PK.md";
-            Storage::disk('advisors')->put($pkPath, $pkContent);
-            Log::info('PK saved', ['path' => $pkPath, 'size' => strlen($pkContent)]);
 
             // Get overall quality report
             if ($progressCallback) {
@@ -96,32 +96,27 @@ class AdvisorGenerationService
             }
             $qualityReport = $this->qualityService->getValidationReport($piScore, $pkScore);
 
-            // Save metadata with quality scores
-            $metadataPath = "{$basePath}/metadata.json";
+            // Prepare metadata for return
             $metadata = [
                 'name' => $advisorName,
                 'sanitized_name' => $sanitizedName,
                 'generated_at' => now()->toIso8601String(),
-                'pi_file' => $piPath,
-                'pk_file' => $pkPath,
                 'pi_size' => strlen($piContent),
                 'pk_size' => strlen($pkContent),
                 'version' => $version ?? '1.0.0',
                 'quality' => $qualityReport,
             ];
-            Storage::disk('advisors')->put($metadataPath, json_encode($metadata, JSON_PRETTY_PRINT));
-            Log::info('Metadata saved with quality report', ['path' => $metadataPath]);
 
-            $savedFiles = [
-                'pi' => $piPath,
-                'pk' => $pkPath,
-                'metadata' => $metadataPath,
-                'base_path' => $basePath,
-            ];
+            // Optional file export for local development
+            $exportedFiles = null;
+            if ($exportFiles) {
+                $exportedFiles = $this->exportToFiles($advisorData, $piContent, $pkContent, $metadata);
+            }
 
             Log::info('Advisor generation completed successfully', [
                 'advisor_name' => $advisorData['name'],
-                'files' => $savedFiles,
+                'files_exported' => $exportFiles,
+                'exported_files' => $exportedFiles,
             ]);
 
             // Report completion
@@ -134,7 +129,7 @@ class AdvisorGenerationService
                 'advisor_name' => $advisorData['name'],
                 'pi_content' => $piContent,
                 'pk_content' => $pkContent,
-                'files' => $savedFiles,
+                'exported_files' => $exportedFiles,
                 'quality' => $qualityReport,
                 'generated_at' => now()->toIso8601String(),
             ];
@@ -154,23 +149,15 @@ class AdvisorGenerationService
      * Stage 1: Deterministic template substitution (instant)
      * Stage 2: Lightweight LLM enhancement for examples (2-3 seconds)
      */
-    protected function generatePI(array $advisorData, ?string $version = 'v1'): string
+    protected function generatePI(array $advisorData, ?string $version = 'v1', array $mappedVars = []): string
     {
         $templateName = $version ? "meta_pi_template_{$version}" : 'meta_pi_template';
 
         // Load template (may throw if not found)
         $template = $this->templateService->loadTemplate($templateName);
 
-        // Map variables using AdvisorConfigService
-        $mappedVars = [];
-        if (isset($advisorData['key']) && is_string($advisorData['key'])) {
-            // Load config by key and map variables
-            $config = $this->configService->getAdvisorConfig($advisorData['key']);
-            $mappedVars = $this->configService->mapVariables($config);
-            // Merge config data for enhancement
-            $advisorData = array_merge($advisorData, $config);
-        } else {
-            // Map directly from advisorData
+        // Use pre-mapped variables or map from advisor data directly
+        if (empty($mappedVars)) {
             $mappedVars = $this->configService->mapVariables($advisorData);
         }
 
@@ -356,19 +343,14 @@ PROMPT;
      * - Pre-validation loop with quality scoring
      * - Voice calibration and consistency checks
      */
-    protected function generatePK(array $advisorData, ?string $version = 'v1'): string
+    protected function generatePK(array $advisorData, ?string $version = 'v1', array $mappedVars = []): string
     {
         $templateName = $version ? "meta_pk_template_{$version}" : 'meta_pk_template';
 
         $template = $this->templateService->loadTemplate($templateName);
 
-        // Map variables for PK template substitution
-        $mappedVars = [];
-        if (isset($advisorData['key']) && is_string($advisorData['key'])) {
-            $config = $this->configService->getAdvisorConfig($advisorData['key']);
-            $mappedVars = $this->configService->mapVariables($config);
-            $advisorData = array_merge($advisorData, $config);
-        } else {
+        // Use pre-mapped variables or map from advisor data directly
+        if (empty($mappedVars)) {
             $mappedVars = $this->configService->mapVariables($advisorData);
         }
 
@@ -1003,13 +985,13 @@ YAML;
     /**
      * Generate multiple advisors in batch
      */
-    public function generateBatch(array $advisorsData, ?string $version = 'v1'): array
+    public function generateBatch(array $advisorsData, ?string $version = 'v1', bool $exportFiles = false): array
     {
         $results = [];
 
         foreach ($advisorsData as $advisorData) {
             try {
-                $results[] = $this->generateAdvisor($advisorData, $version);
+                $results[] = $this->generateAdvisor($advisorData, $version, null, $exportFiles);
             } catch (\Exception $e) {
                 $results[] = [
                     'success' => false,
@@ -1020,5 +1002,60 @@ YAML;
         }
 
         return $results;
+    }
+
+    /**
+     * Export advisor files to local storage for development testing
+     */
+    private function exportToFiles($advisorData, $piContent, $pkContent, $metadata): array
+    {
+        $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown';
+        $pascalName = str_replace(' ', '', ucwords(str_replace('-', ' ', $advisorName)));
+        $timestamp = now()->format('Y-m-d');
+        $jobId = $metadata['job_id'] ?? 'unknown';
+        
+        $basePath = "advisors/{$advisorName}/{$timestamp}-job-{$jobId}";
+        Storage::disk('advisors')->makeDirectory($basePath);
+        
+        // Use correct naming: AlexBogusky_PI.md, AlexBogusky_PK.md
+        $piPath = "{$basePath}/{$pascalName}_PI.md";
+        $pkPath = "{$basePath}/{$pascalName}_PK.md";
+        $metadataPath = "{$basePath}/metadata.json";
+        
+        Storage::disk('advisors')->put($piPath, $piContent);
+        Storage::disk('advisors')->put($pkPath, $pkContent);
+        Storage::disk('advisors')->put($metadataPath, json_encode($metadata, JSON_PRETTY_PRINT));
+        
+        Log::info('Files exported to storage', [
+            'base_path' => $basePath,
+            'pi_file' => $piPath,
+            'pk_file' => $pkPath,
+        ]);
+
+        return [
+            'pi' => $piPath,
+            'pk' => $pkPath,
+            'metadata' => $metadataPath,
+            'base_path' => $basePath,
+        ];
+    }
+
+    /**
+     * Get the file paths where exported files would be saved
+     */
+    private function getExportedFilePaths($advisorData): array
+    {
+        $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown';
+        $pascalName = str_replace(' ', '', ucwords(str_replace('-', ' ', $advisorName)));
+        $timestamp = now()->format('Y-m-d');
+        
+        $basePath = "advisors/{$advisorName}/{$timestamp}-job-current";
+        
+        return [
+            'pi' => "{$basePath}/{$pascalName}_PI.md",
+            'pk' => "{$basePath}/{$pascalName}_PK.md",
+            'metadata' => "{$basePath}/metadata.json",
+            'base_path' => $basePath,
+        ];
     }
 }

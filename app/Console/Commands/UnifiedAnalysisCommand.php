@@ -47,9 +47,8 @@ class UnifiedAnalysisCommand extends Command
 
         // Find historical PI files
         $historicalPaths = [
-            'alex_bogusky/v1/chatgpt-pi-conversation.md',
-            'alex_bogusky/v2/chatgpt-pi-conversation.md',
-            'alex_bogusky/v3/chatgpt-pi-conversation.md',
+            'advisors/historical/Advisors - Bog Halbert Homz Cal/PI.md',
+            'advisors/historical/[archived] Advisors - BHCH/PI.md',
         ];
 
         $currentPath = "advisors/{$advisorKey}/current/PI.md";
@@ -111,14 +110,14 @@ class UnifiedAnalysisCommand extends Command
 
                 if (isset($paths['pi']) && File::exists($paths['pi'])) {
                     $piContent = File::get($paths['pi']);
-                    $piValidation = $this->qualityService->validatePI($piContent);
-                    $piScore = $piValidation['score'] ?? 0;
+                    $piValidation = $this->qualityService->scorePI($piContent);
+                    $piScore = $piValidation['percentage'] ?? 0;
                 }
 
                 if (isset($paths['pk']) && File::exists($paths['pk'])) {
                     $pkContent = File::get($paths['pk']);
-                    $pkValidation = $this->qualityService->validatePK($pkContent);
-                    $pkScore = $pkValidation['score'] ?? 0;
+                    $pkValidation = $this->qualityService->scorePK($pkContent);
+                    $pkScore = $pkValidation['percentage'] ?? 0;
                 }
 
                 $results[] = [
@@ -139,8 +138,9 @@ class UnifiedAnalysisCommand extends Command
 
         // Output in requested format
         if ($this->option('output') === 'json') {
-            File::put('version_comparison.json', json_encode($results, JSON_PRETTY_PRINT));
-            $this->info('Results saved to version_comparison.json');
+            $outputPath = base_path('version_comparison.json');
+            File::put($outputPath, json_encode($results, JSON_PRETTY_PRINT));
+            $this->info("Results saved to {$outputPath}");
         }
 
         return Command::SUCCESS;
@@ -364,13 +364,24 @@ class UnifiedAnalysisCommand extends Command
     private function findAdvisorVersions(string $advisorKey): array
     {
         $versions = [];
-        $basePath = storage_path("app/advisors/{$advisorKey}");
+        $directoryName = $this->getAdvisorDirectoryName($advisorKey);
+        $basePath = storage_path("app/advisors/{$directoryName}");
+
+        // Check current/direct files first
+        $piPath = "{$basePath}/PI.md";
+        $pkPath = "{$basePath}/PK.md";
+        if (File::exists($piPath) || File::exists($pkPath)) {
+            $versions['current'] = [
+                'pi' => File::exists($piPath) ? $piPath : null,
+                'pk' => File::exists($pkPath) ? $pkPath : null,
+            ];
+        }
 
         // Check standard version locations
         $versionPaths = [
             'v2' => "{$basePath}/v2",
             'v3' => "{$basePath}/v3",
-            'current' => "{$basePath}/current",
+            'historical' => "{$basePath}/historical",
             'test' => "{$basePath}/test",
         ];
 
@@ -388,7 +399,7 @@ class UnifiedAnalysisCommand extends Command
             }
         }
 
-        // Check timestamped versions
+        // Check timestamped versions in main advisor directory
         if (File::exists($basePath)) {
             $directories = File::directories($basePath);
             foreach ($directories as $dir) {
@@ -401,6 +412,34 @@ class UnifiedAnalysisCommand extends Command
                         $versions[$dirName] = [
                             'pi' => File::exists($piPath) ? $piPath : null,
                             'pk' => File::exists($pkPath) ? $pkPath : null,
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Check comparison tests directory
+        $comparisonsPath = storage_path("app/advisor-tests/comparisons");
+        if (File::exists($comparisonsPath)) {
+            $compDirs = File::directories($comparisonsPath);
+            foreach ($compDirs as $dir) {
+                $dirName = basename($dir);
+                if (preg_match('/^\d{4}-\d{2}-\d{2}/', $dirName)) {
+                    // Look for PK files that might be comparison versions
+                    $safePK = "{$dir}/safe_PK.md";
+                    $controversialPK = "{$dir}/controversial_PK.md";
+                    
+                    if (File::exists($safePK)) {
+                        $versions["safe-{$dirName}"] = [
+                            'pi' => null,
+                            'pk' => $safePK,
+                        ];
+                    }
+                    
+                    if (File::exists($controversialPK)) {
+                        $versions["controversial-{$dirName}"] = [
+                            'pi' => null,
+                            'pk' => $controversialPK,
                         ];
                     }
                 }
@@ -580,5 +619,16 @@ class UnifiedAnalysisCommand extends Command
         if (empty($recommendations)) {
             $this->info('No specific improvements needed');
         }
+    }
+
+    private function getAdvisorDirectoryName(string $advisorKey): string
+    {
+        return match ($advisorKey) {
+            'bogusky' => 'alex-bogusky',
+            'hormozi' => 'alex-hormozi', 
+            'henderson' => 'cal-henderson',
+            'halbert' => 'gary-halbert',
+            default => $advisorKey,
+        };
     }
 }

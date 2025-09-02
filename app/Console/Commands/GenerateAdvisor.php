@@ -16,7 +16,7 @@ use Symfony\Component\Console\Helper\Table;
 
 class GenerateAdvisor extends Command
 {
-    protected $signature = 'advisor:generate {name? : The advisor key from config} {--all : Generate all advisors} {--template-version=v1 : Template version} {--show-validation : Display detailed validation feedback} {--background : Run generation in background queue} {--poll : Poll background job status}';
+    protected $signature = 'advisor:generate {name? : The advisor key from config} {--all : Generate all advisors} {--template-version=v1 : Template version} {--show-validation : Display detailed validation feedback} {--background : Run generation in background queue} {--poll : Poll background job status} {--export-files : Export generated files to local storage for testing}';
     protected $description = 'Generate an advisor by key from database (supports background processing with Redis/Horizon)';
 
     public function __construct(
@@ -116,7 +116,12 @@ class GenerateAdvisor extends Command
             // TODO: this process is lies.
             // Based on the actual logic of how this works, by the time it gets to generatedVisor, wouldn't it already have generated the knowledge, since that all happens within the generatedVisor method?
             // How can we do this so that the progress is accurate? Do we need to embed the progress part within GeneratedAdvisor? That doesn't make sense. Go through events: what's the best practice here?
-            $result = $this->generationService->generateAdvisor($advisorData, $version);
+            $result = $this->generationService->generateAdvisor(
+                $advisorData, 
+                $version, 
+                null, 
+                $this->option('export-files')
+            );
 
             $progressBar->advance();
             $progressBar->setMessage('Generating PK (Knowledge)...');
@@ -143,14 +148,18 @@ class GenerateAdvisor extends Command
                     $this->displayValidationDetails($quality);
                 }
 
-                // Display file paths
-                $this->table(['Component', 'File Path', 'Quality'], [
-                    ['PI (Instructions)', $result['files']['pi'], $quality['pi']['percentage'] . '%'],
-                    ['PK (Knowledge)', $result['files']['pk'], $quality['pk']['percentage'] . '%'],
-                    ['Metadata', $result['files']['metadata'], 'N/A']
-                ]);
+                // Display file paths if files were exported
+                if ($result['exported_files']) {
+                    $this->table(['Component', 'File Path', 'Quality'], [
+                        ['PI (Instructions)', $result['exported_files']['pi'], $quality['pi']['percentage'] . '%'],
+                        ['PK (Knowledge)', $result['exported_files']['pk'], $quality['pk']['percentage'] . '%'],
+                        ['Metadata', $result['exported_files']['metadata'], 'N/A']
+                    ]);
 
-                $this->info("📁 Files saved to: storage/app/advisors/{$result['files']['base_path']}");
+                    $this->info("📁 Files exported to: storage/app/advisors/{$result['exported_files']['base_path']}");
+                } else {
+                    $this->info("📄 Content generated and stored in database (use --export-files flag to save local files)");
+                }
 
                 // Check quality threshold if specified
                 $threshold = $this->option('quality-threshold');

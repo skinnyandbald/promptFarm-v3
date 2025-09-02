@@ -48,7 +48,8 @@ class GenerateAdvisorJob implements ShouldQueue
                 'v1', // Always use v1 templates
                 function (int $progress, string $step) {
                     $this->generationJob->updateProgress($progress, $step);
-                }
+                },
+                false // Never export files for queued jobs
             );
 
             $this->generationJob->update([

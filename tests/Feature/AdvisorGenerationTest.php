@@ -23,6 +23,9 @@ class AdvisorGenerationTest extends TestCase
     {
         parent::setUp();
         
+        // Refresh migrations for test database
+        $this->artisan('migrate:fresh');
+        
         // Create mock services
         $this->mockLLMService = Mockery::mock(LLMService::class);
         $this->mockTemplateService = Mockery::mock(TemplateService::class);
@@ -75,9 +78,8 @@ class AdvisorGenerationTest extends TestCase
             
         $this->mockTemplateService
             ->shouldReceive('loadTemplate')
-            ->once()
-            ->with('meta_pi_template_v1')
-            ->andReturn($template);
+            ->twice()
+            ->andReturnValues([$template, $template]);
             
         $this->mockTemplateService
             ->shouldReceive('extractVariables')
@@ -86,7 +88,7 @@ class AdvisorGenerationTest extends TestCase
             
         $this->mockTemplateService
             ->shouldReceive('substituteVariables')
-            ->once()
+            ->twice()
             ->andReturn('Hello Test Expert Advisor, your expertise is Strategic Advisory');
             
         $this->mockTemplateService
@@ -94,17 +96,10 @@ class AdvisorGenerationTest extends TestCase
             ->once()
             ->andReturn([]);
             
-        // Mock PK generation
-        $this->mockTemplateService
-            ->shouldReceive('loadTemplate')
-            ->once()
-            ->with('meta_pk_template_v1')
-            ->andReturn($template);
-            
         $this->mockLLMService
-            ->shouldReceive('generateText')
+            ->shouldReceive('generateTextWithOpenRouter')
             ->once()
-            ->andReturn('Generated PK content');
+            ->andReturn(str_repeat('Generated PK content with enough text to pass validation. ', 5));
             
         // Mock quality scoring
         $this->mockQualityService
@@ -114,7 +109,7 @@ class AdvisorGenerationTest extends TestCase
             
         $this->mockQualityService
             ->shouldReceive('scorePK')
-            ->once()
+            ->twice()
             ->andReturn(['percentage' => 90, 'valid' => true, 'issues' => []]);
             
         $this->mockQualityService
@@ -129,8 +124,11 @@ class AdvisorGenerationTest extends TestCase
         $this->assertTrue($result['success']);
         $this->assertEquals('Test Advisor', $result['advisor_name']);
         $this->assertArrayHasKey('quality', $result);
-        Storage::disk('advisors')->assertExists('test-expert-advisor/PI.md');
-        Storage::disk('advisors')->assertExists('test-expert-advisor/PK.md');
+        $this->assertArrayHasKey('pi_content', $result);
+        $this->assertArrayHasKey('pk_content', $result);
+        $this->assertNull($result['exported_files']); // No files exported by default
+        Storage::disk('advisors')->assertMissing('test-expert-advisor/PI.md');
+        Storage::disk('advisors')->assertMissing('test-expert-advisor/PK.md');
     }
 
     public function test_llm_powered_pi_enhancement_with_mocked_responses()
@@ -317,6 +315,10 @@ class AdvisorGenerationTest extends TestCase
             ->shouldReceive('generateText')
             ->andReturn('Generated content');
             
+        $this->mockLLMService
+            ->shouldReceive('generateTextWithOpenRouter')
+            ->andReturn(str_repeat('Generated PK content with enough text to pass validation. ', 5));
+            
         $this->mockQualityService
             ->shouldReceive('scorePI')
             ->andReturn(['percentage' => 80, 'valid' => true, 'issues' => []]);
@@ -329,16 +331,25 @@ class AdvisorGenerationTest extends TestCase
             ->shouldReceive('getValidationReport')
             ->andReturn(['summary' => ['overall_score' => 82.5]]);
         
-        // Act
-        $result = $this->generationService->generateAdvisor($advisorData, 'v1');
+        // Act - Test file export functionality
+        $result = $this->generationService->generateAdvisor($advisorData, 'v1', null, true);
         
         // Assert
-        Storage::disk('advisors')->assertExists('test-expert-advisor/PI.md');
-        Storage::disk('advisors')->assertExists('test-expert-advisor/PK.md');
-        Storage::disk('advisors')->assertExists('test-expert-advisor/metadata.json');
+        $this->assertNotNull($result['exported_files']); // Files should be exported
+        $this->assertArrayHasKey('pi', $result['exported_files']);
+        $this->assertArrayHasKey('pk', $result['exported_files']);
+        $this->assertArrayHasKey('metadata', $result['exported_files']);
+        
+        // Check files exist with correct naming format
+        $this->assertStringContainsString('_PI.md', $result['exported_files']['pi']);
+        $this->assertStringContainsString('_PK.md', $result['exported_files']['pk']);
+        
+        Storage::disk('advisors')->assertExists($result['exported_files']['pi']);
+        Storage::disk('advisors')->assertExists($result['exported_files']['pk']);
+        Storage::disk('advisors')->assertExists($result['exported_files']['metadata']);
         
         $metadata = json_decode(
-            Storage::disk('advisors')->get('test-expert-advisor/metadata.json'),
+            Storage::disk('advisors')->get($result['exported_files']['metadata']),
             true
         );
         
