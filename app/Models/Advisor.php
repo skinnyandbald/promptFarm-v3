@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 class Advisor extends Model
 {
+    use HasFactory;
     /**
      * The attributes that are mass assignable.
      *
@@ -20,6 +22,7 @@ class Advisor extends Model
         'era',
         'style',
         'industry',
+        'advisor_type',
         'primary_objective',
         'core_expertise_area',
         'related_expertise_areas',

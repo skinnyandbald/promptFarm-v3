@@ -20,6 +20,7 @@ return new class extends Migration
             $table->string('era');
             $table->text('style');
             $table->string('industry');
+            $table->string('advisor_type')->default('strategic');
             $table->text('primary_objective');
             $table->string('core_expertise_area');
             $table->json('related_expertise_areas');
