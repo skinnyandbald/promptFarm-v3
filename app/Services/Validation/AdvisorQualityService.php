@@ -8,21 +8,25 @@ use Symfony\Component\Yaml\Yaml;
 class AdvisorQualityService
 {
     protected array $piRequiredSections = [
-        '# Voice Authenticity Anchors',
-        '# Core Operating Principles',
-        '# Chain-of-Thought Conditioning',
-        '# Few-Shot Behavioral Priming',
-        '# Domain Expertise Boundaries',
-        '# Response Quality Standards'
+        '## **PK Guardrail**',
+        '## **Context**',
+        '## **Constitutional Identity Constraints**',
+        '## **Evidence-Based Prompt Engineering**',
+        '## **Chain-of-Thought Conditioning**',
+        '## **Few-Shot Behavioral Priming**',
+        '## **Retrieval-Augmented Context**',
+        '## **Constitutional AI Constraints**',
+        '## **Core Operating Principles**',
+        '## **Voice Authenticity Anchors**',
+        '## **Domain Expertise Boundaries**',
+        '## **Response Quality Standards**',
     ];
 
     protected array $pkRequiredSections = [
-        '# Voice Anchor',
-        '# Challenge & Acceptance Criteria',
-        '# Communication Format Rules',
-        '# Primary Framework',
-        '# Secondary Framework',
-        '# Battle-Tested Application'
+        '## Core Analytical Tensions',
+        '## Failed Pattern Library',
+        '## Industry Enemy Analysis',
+        '## Questions That Make People Uncomfortable',
     ];
 
     /**
@@ -58,7 +62,7 @@ class AdvisorQualityService
             $strengths[] = 'No remaining template placeholders';
         } else {
             $issues[] = "Found {$placeholderResult['count']} unsubstituted placeholders";
-            $issues = array_merge($issues, array_map(fn($p) => "Unsubstituted: {{{{{$p}}}}}", $placeholderResult['placeholders']));
+            $issues = array_merge($issues, array_map(fn ($p) => "Unsubstituted: {{{{{$p}}}}}", $placeholderResult['placeholders']));
         }
 
         // Check for HTML comments (20 points)
@@ -94,7 +98,7 @@ class AdvisorQualityService
         $lineCount = substr_count($content, "\n") + 1;
         $minLines = $validationRules['min_lines'] ?? 100;
         $maxLines = $validationRules['max_lines'] ?? 300;
-        
+
         if ($lineCount < $minLines) {
             $issues[] = "Content too short: {$lineCount} lines (minimum: {$minLines})";
         } elseif ($lineCount > $maxLines) {
@@ -116,8 +120,8 @@ class AdvisorQualityService
                 'placeholders' => $placeholderResult,
                 'htmlComments' => $htmlCommentResult,
                 'contentDepth' => $depthResult,
-                'voice' => $voiceResult
-            ]
+                'voice' => $voiceResult,
+            ],
         ];
     }
 
@@ -154,7 +158,7 @@ class AdvisorQualityService
             $strengths[] = 'No remaining template placeholders';
         } else {
             $issues[] = "Found {$placeholderResult['count']} unsubstituted placeholders";
-            $issues = array_merge($issues, array_map(fn($p) => "Unsubstituted: {{{{{$p}}}}}", $placeholderResult['placeholders']));
+            $issues = array_merge($issues, array_map(fn ($p) => "Unsubstituted: {{{{{$p}}}}}", $placeholderResult['placeholders']));
         }
 
         // Check for HTML comments (10 points - less critical for PK)
@@ -190,7 +194,7 @@ class AdvisorQualityService
         $lineCount = substr_count($content, "\n") + 1;
         $minLines = $validationRules['min_lines'] ?? 150;
         $maxLines = $validationRules['max_lines'] ?? 500;
-        
+
         if ($lineCount < $minLines) {
             $issues[] = "Content too short: {$lineCount} lines (minimum: {$minLines})";
         } elseif ($lineCount > $maxLines) {
@@ -212,8 +216,8 @@ class AdvisorQualityService
                 'placeholders' => $placeholderResult,
                 'htmlComments' => $htmlCommentResult,
                 'contentDepth' => $depthResult,
-                'examples' => $examplesResult
-            ]
+                'examples' => $examplesResult,
+            ],
         ];
     }
 
@@ -236,7 +240,7 @@ class AdvisorQualityService
         return [
             'valid' => empty($missing),
             'missing' => $missing,
-            'found' => $found
+            'found' => $found,
         ];
     }
 
@@ -259,7 +263,7 @@ class AdvisorQualityService
         return [
             'valid' => empty($missing),
             'missing' => $missing,
-            'found' => $found
+            'found' => $found,
         ];
     }
 
@@ -269,11 +273,11 @@ class AdvisorQualityService
     public function checkForRemainingPlaceholders(string $content): array
     {
         preg_match_all('/{{([^}]+)}}/', $content, $matches);
-        
+
         return [
             'clean' => empty($matches[1]),
             'count' => count($matches[1]),
-            'placeholders' => array_unique($matches[1])
+            'placeholders' => array_unique($matches[1]),
         ];
     }
 
@@ -283,11 +287,11 @@ class AdvisorQualityService
     protected function checkForHTMLComments(string $content): array
     {
         preg_match_all('/<!--[^>]+-->/', $content, $matches);
-        
+
         return [
             'clean' => empty($matches[0]),
             'count' => count($matches[0]),
-            'comments' => $matches[0]
+            'comments' => $matches[0],
         ];
     }
 
@@ -341,7 +345,7 @@ class AdvisorQualityService
 
         return [
             'score' => min(1.0, $score),
-            'factors' => $factors
+            'factors' => $factors,
         ];
     }
 
@@ -351,14 +355,14 @@ class AdvisorQualityService
     protected function checkFirstPersonVoice(string $content): array
     {
         $violations = 0;
-        
+
         // Check for third-person references that should be first-person
         $thirdPersonPatterns = [
             '/[Tt]he advisor would/',
             '/[Aa]dvisor\'s perspective/',
             '/[Ff]rom .+ point of view/',
             '/[Aa]s .+ might suggest/',
-            '/[Tt]hey would say/'
+            '/[Tt]hey would say/',
         ];
 
         foreach ($thirdPersonPatterns as $pattern) {
@@ -371,7 +375,7 @@ class AdvisorQualityService
         return [
             'proper' => $violations === 0 && $firstPersonCount > 3,
             'violations' => $violations,
-            'firstPersonUsage' => $firstPersonCount
+            'firstPersonUsage' => $firstPersonCount,
         ];
     }
 
@@ -385,7 +389,7 @@ class AdvisorQualityService
             '/[Ii]n my (work|experience) with/',
             '/[Ss]pecific (example|case|instance)/',
             '/\d+%\s+(increase|decrease|improvement|growth)/',
-            '/[Rr]esulted in .+ (outcome|result|improvement)/'
+            '/[Rr]esulted in .+ (outcome|result|improvement)/',
         ];
 
         $count = 0;
@@ -395,7 +399,7 @@ class AdvisorQualityService
 
         return [
             'sufficient' => $count >= 3,
-            'count' => $count
+            'count' => $count,
         ];
     }
 
@@ -405,13 +409,13 @@ class AdvisorQualityService
     public function calculateQualityScore(array $piScore, array $pkScore): array
     {
         $overallScore = ($piScore['percentage'] + $pkScore['percentage']) / 2;
-        
+
         return [
             'overall' => round($overallScore),
             'pi' => $piScore['percentage'],
             'pk' => $pkScore['percentage'],
             'valid' => $piScore['valid'] && $pkScore['valid'],
-            'recommendation' => $this->getRecommendation($overallScore)
+            'recommendation' => $this->getRecommendation($overallScore),
         ];
     }
 
@@ -439,31 +443,31 @@ class AdvisorQualityService
     public function getValidationReport(array $piScore, array $pkScore): array
     {
         $overall = $this->calculateQualityScore($piScore, $pkScore);
-        
+
         return [
             'summary' => [
                 'overall_score' => $overall['overall'],
                 'status' => $overall['valid'] ? 'PASSED' : 'FAILED',
-                'recommendation' => $overall['recommendation']
+                'recommendation' => $overall['recommendation'],
             ],
             'pi' => [
                 'score' => $piScore['score'],
                 'percentage' => $piScore['percentage'],
                 'issues' => $piScore['issues'],
                 'strengths' => $piScore['strengths'],
-                'lineCount' => $piScore['lineCount']
+                'lineCount' => $piScore['lineCount'],
             ],
             'pk' => [
                 'score' => $pkScore['score'],
                 'percentage' => $pkScore['percentage'],
                 'issues' => $pkScore['issues'],
                 'strengths' => $pkScore['strengths'],
-                'lineCount' => $pkScore['lineCount']
+                'lineCount' => $pkScore['lineCount'],
             ],
             'metadata' => [
                 'validated_at' => now()->toIso8601String(),
-                'validator_version' => '1.0.0'
-            ]
+                'validator_version' => '1.0.0',
+            ],
         ];
     }
 
@@ -472,7 +476,7 @@ class AdvisorQualityService
      */
     protected function extractMetadata(string $content): array
     {
-        if (!Str::startsWith($content, '---')) {
+        if (! Str::startsWith($content, '---')) {
             return [];
         }
 

@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Console\Commands;
+namespace App\Console\Commands\Testing\Approaches;
 
-use Illuminate\Console\Command;
 use App\Models\Advisor;
 use App\Services\AdvisorGenerationService;
+use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 
 class TestAnalyticalTension extends Command
@@ -12,12 +12,12 @@ class TestAnalyticalTension extends Command
     protected $signature = 'advisor:test-tension 
                            {--advisor=alex-bogusky : Advisor slug to test}
                            {--model=gpt-4o : Model to use (gpt-4o, gpt-4-turbo, claude-3-opus)}';
-    
+
     protected $description = 'Test analytical tension approach for controversial content';
-    
+
     protected AdvisorGenerationService $generationService;
 
-    public function __construct(AdvisorGenerationService $generationService) 
+    public function __construct(AdvisorGenerationService $generationService)
     {
         parent::__construct();
         $this->generationService = $generationService;
@@ -27,74 +27,75 @@ class TestAnalyticalTension extends Command
     {
         $advisorSlug = $this->option('advisor');
         $model = $this->option('model');
-        
+
         $this->info('🧠 ANALYTICAL TENSION GENERATION TEST');
-        $this->info('=' . str_repeat('=', 60));
+        $this->info('='.str_repeat('=', 60));
         $this->newLine();
-        
+
         $advisor = Advisor::where('slug', $advisorSlug)->first();
-        if (!$advisor) {
+        if (! $advisor) {
             $this->error("Advisor not found: {$advisorSlug}");
+
             return 1;
         }
-        
+
         $this->info("Advisor: {$advisor->name}");
         $this->info("Model: {$model}");
         $this->newLine();
-        
+
         // Generate with standard approach
         $this->info('1️⃣ Generating with STANDARD approach...');
         $standardContent = $this->generateStandard($advisor, $model);
-        
-        // Generate with analytical tension approach  
+
+        // Generate with analytical tension approach
         $this->info('2️⃣ Generating with ANALYTICAL TENSION approach...');
         $tensionContent = $this->generateWithTension($advisor, $model);
-        
+
         // Analyze both
         $standardAnalysis = $this->analyzeContent($standardContent);
         $tensionAnalysis = $this->analyzeContent($tensionContent);
-        
+
         // Display results
         $this->newLine();
         $this->info('📊 RESULTS COMPARISON');
         $this->table(
             ['Metric', 'Standard', 'Analytical Tension', 'Improvement'],
             [
-                ['Reasoning Triggers', $standardAnalysis['reasoning'], $tensionAnalysis['reasoning'], 
-                 $this->formatDiff($tensionAnalysis['reasoning'] - $standardAnalysis['reasoning'])],
+                ['Reasoning Triggers', $standardAnalysis['reasoning'], $tensionAnalysis['reasoning'],
+                    $this->formatDiff($tensionAnalysis['reasoning'] - $standardAnalysis['reasoning'])],
                 ['Specific Companies', $standardAnalysis['companies'], $tensionAnalysis['companies'],
-                 $this->formatDiff($tensionAnalysis['companies'] - $standardAnalysis['companies'])],
+                    $this->formatDiff($tensionAnalysis['companies'] - $standardAnalysis['companies'])],
                 ['Dollar Amounts', $standardAnalysis['dollars'], $tensionAnalysis['dollars'],
-                 $this->formatDiff($tensionAnalysis['dollars'] - $standardAnalysis['dollars'])],
+                    $this->formatDiff($tensionAnalysis['dollars'] - $standardAnalysis['dollars'])],
                 ['Causal Analysis', $standardAnalysis['causal'], $tensionAnalysis['causal'],
-                 $this->formatDiff($tensionAnalysis['causal'] - $standardAnalysis['causal'])],
+                    $this->formatDiff($tensionAnalysis['causal'] - $standardAnalysis['causal'])],
                 ['Constraints Named', $standardAnalysis['constraints'], $tensionAnalysis['constraints'],
-                 $this->formatDiff($tensionAnalysis['constraints'] - $standardAnalysis['constraints'])],
+                    $this->formatDiff($tensionAnalysis['constraints'] - $standardAnalysis['constraints'])],
             ]
         );
-        
+
         // Save both versions
         $timestamp = now()->format('Y-m-d_H-i-s');
         Storage::disk('advisors')->put("tension-test/{$timestamp}/standard_PK.md", $standardContent);
         Storage::disk('advisors')->put("tension-test/{$timestamp}/tension_PK.md", $tensionContent);
-        
+
         $this->newLine();
         $this->info("✅ Saved to: storage/app/advisors/tension-test/{$timestamp}/");
-        
+
         // Show examples from tension version
         $this->newLine();
         $this->info('🎯 SAMPLE ANALYTICAL TENSIONS:');
         $this->showTensionExamples($tensionContent);
-        
+
         $this->newLine();
         $this->info('📋 Next step: Upload tension_PK.md to ChatGPT and test with:');
         $this->line('1. "How should I approach content marketing?"');
         $this->line('2. "Should I hire McKinsey?"');
         $this->line('3. "What\'s wrong with my marketing strategy?"');
-        
+
         return 0;
     }
-    
+
     protected function generateStandard($advisor, $model): string
     {
         $prompt = <<<PROMPT
@@ -111,7 +112,7 @@ PROMPT;
 
         return $this->callModel($prompt, $model);
     }
-    
+
     protected function generateWithTension($advisor, $model): string
     {
         $prompt = <<<PROMPT
@@ -184,29 +185,30 @@ PROMPT;
 
         return $this->callModel($prompt, $model, 0.8); // Higher temperature for tension
     }
-    
+
     protected function callModel(string $prompt, string $model, float $temperature = 0.7): string
     {
         $client = \OpenAI::client(config('services.openai.api_key'));
-        
+
         try {
             $response = $client->chat()->create([
                 'model' => $model,
                 'messages' => [
                     ['role' => 'system', 'content' => 'You are an expert at creating analytical frameworks that reveal uncomfortable truths.'],
-                    ['role' => 'user', 'content' => $prompt]
+                    ['role' => 'user', 'content' => $prompt],
                 ],
                 'temperature' => $temperature,
                 'max_tokens' => 4000,
             ]);
-            
+
             return $response->choices[0]->message->content;
         } catch (\Exception $e) {
-            $this->error("Model error: " . $e->getMessage());
+            $this->error('Model error: '.$e->getMessage());
+
             return '';
         }
     }
-    
+
     protected function analyzeContent(string $content): array
     {
         return [
@@ -217,15 +219,15 @@ PROMPT;
             'constraints' => preg_match_all('/\bconstraint(?:s)?\b/i', $content),
         ];
     }
-    
+
     protected function showTensionExamples(string $content)
     {
         // Extract analytical tensions
         preg_match_all('/\*\*The Problem:\*\*.*?\*\*The Insight:\*\*.*?$/ms', $content, $matches);
-        
-        if (!empty($matches[0])) {
+
+        if (! empty($matches[0])) {
             foreach (array_slice($matches[0], 0, 2) as $i => $tension) {
-                $this->line(substr($tension, 0, 500) . (strlen($tension) > 500 ? "..." : ""));
+                $this->line(substr($tension, 0, 500).(strlen($tension) > 500 ? '...' : ''));
                 $this->newLine();
             }
         } else {
@@ -233,13 +235,13 @@ PROMPT;
             $paragraphs = explode("\n\n", $content);
             foreach (array_slice($paragraphs, 0, 3) as $para) {
                 if (strlen($para) > 50) {
-                    $this->line(substr($para, 0, 200) . "...");
+                    $this->line(substr($para, 0, 200).'...');
                     $this->newLine();
                 }
             }
         }
     }
-    
+
     protected function formatDiff($diff): string
     {
         if ($diff > 0) {
@@ -247,6 +249,7 @@ PROMPT;
         } elseif ($diff < 0) {
             return "{$diff} ❌";
         }
-        return "0 ➖";
+
+        return '0 ➖';
     }
 }

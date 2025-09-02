@@ -10,7 +10,7 @@ class DebugPromptStructure extends Command
 {
     protected $signature = 'advisor:debug-prompts 
                            {--model=x-ai/grok-3 : Model to test with}';
-    
+
     protected $description = 'Debug which prompt structures cause formalization';
 
     protected $testPrompts = [
@@ -25,46 +25,48 @@ class DebugPromptStructure extends Command
     public function handle()
     {
         $model = $this->option('model');
-        $apiKey = config('services.openrouter.api_key', env('OPENROUTER_API_KEY'));
-        
-        if (!$apiKey) {
+        $apiKey = config('services.openrouter.api_key');
+
+        if (! $apiKey) {
             $this->error('OPENROUTER_API_KEY not configured');
+
             return 1;
         }
 
         $this->info('🔬 SYSTEMATIC PROMPT STRUCTURE DEBUG');
-        $this->info('Testing model: ' . $model);
+        $this->info('Testing model: '.$model);
         $this->newLine();
 
         $results = [];
 
         foreach ($this->testPrompts as $file => $description) {
             $this->info("Testing: {$description}");
-            
+
             // Load the prompt template
             $promptPath = storage_path("app/advisors/test-debug/prompt-{$file}.md");
-            if (!file_exists($promptPath)) {
+            if (! file_exists($promptPath)) {
                 $this->error("Prompt file not found: {$promptPath}");
+
                 continue;
             }
-            
+
             $systemPrompt = file_get_contents($promptPath);
-            
+
             // Generate response
             $response = $this->generateWithOpenRouter($systemPrompt, $model, $apiKey);
-            
+
             // Analyze response characteristics
             $analysis = $this->analyzeResponse($response);
             $results[$file] = [
                 'description' => $description,
                 'response' => $response,
-                'analysis' => $analysis
+                'analysis' => $analysis,
             ];
-            
+
             // Save response
             $outputPath = "test-debug/responses/{$file}-response.md";
             Storage::disk('advisors')->put($outputPath, $response);
-            
+
             $this->table(
                 ['Metric', 'Value'],
                 [
@@ -82,15 +84,15 @@ class DebugPromptStructure extends Command
         // Compare results
         $this->info('📊 COMPARATIVE ANALYSIS');
         $this->compareResults($results);
-        
+
         return 0;
     }
 
     protected function generateWithOpenRouter(string $systemPrompt, string $model, string $apiKey): string
     {
         $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . $apiKey,
-            'HTTP-Referer' => config('app.url', 'http://localhost'),
+            'Authorization' => 'Bearer '.$apiKey,
+            'HTTP-Referer' => config('app.url'),
             'X-Title' => 'Prompt Structure Debug',
             'Content-Type' => 'application/json',
         ])->timeout(120)->post('https://openrouter.ai/api/v1/chat/completions', [
@@ -98,19 +100,19 @@ class DebugPromptStructure extends Command
             'messages' => [
                 [
                     'role' => 'system',
-                    'content' => $systemPrompt
+                    'content' => $systemPrompt,
                 ],
                 [
                     'role' => 'user',
-                    'content' => $this->userPrompt
-                ]
+                    'content' => $this->userPrompt,
+                ],
             ],
             'temperature' => 0.9,
             'max_tokens' => 2000,
         ]);
 
-        if (!$response->successful()) {
-            throw new \Exception("OpenRouter error: " . $response->body());
+        if (! $response->successful()) {
+            throw new \Exception('OpenRouter error: '.$response->body());
         }
 
         return $response->json()['choices'][0]['message']['content'] ?? '';
@@ -119,25 +121,25 @@ class DebugPromptStructure extends Command
     protected function analyzeResponse(string $response): array
     {
         $analysis = [];
-        
+
         // Confrontational language
-        $confrontationalPhrases = ['you\'re wrong', 'that\'s bullshit', 'here\'s the truth', 
-                                   'stop pretending', 'the lie', 'wake up', 'hate', 'enemy'];
+        $confrontationalPhrases = ['you\'re wrong', 'that\'s bullshit', 'here\'s the truth',
+            'stop pretending', 'the lie', 'wake up', 'hate', 'enemy'];
         $confrontationalCount = 0;
         foreach ($confrontationalPhrases as $phrase) {
             $confrontationalCount += substr_count(strtolower($response), $phrase);
         }
         $analysis['confrontational'] = $confrontationalCount;
-        
+
         // Numbered lists (sign of formalization)
         $analysis['numbered_lists'] = preg_match_all('/^\d+\./m', $response);
-        
+
         // Questions asked (engagement)
         $analysis['questions'] = substr_count($response, '?');
-        
+
         // Specific companies mentioned
-        $companies = ['McKinsey', 'Domino', 'Burger King', 'Mini', 'Pepsi', 'Coca-Cola', 
-                     'WeWork', 'Quibi', 'Theranos', 'WPP', 'Google', 'ChatGPT'];
+        $companies = ['McKinsey', 'Domino', 'Burger King', 'Mini', 'Pepsi', 'Coca-Cola',
+            'WeWork', 'Quibi', 'Theranos', 'WPP', 'Google', 'ChatGPT'];
         $companyCount = 0;
         foreach ($companies as $company) {
             if (stripos($response, $company) !== false) {
@@ -145,22 +147,22 @@ class DebugPromptStructure extends Command
             }
         }
         $analysis['companies'] = $companyCount;
-        
+
         // First person usage (authenticity)
-        $analysis['first_person'] = substr_count($response, 'I ') + 
-                                    substr_count($response, "I'") + 
+        $analysis['first_person'] = substr_count($response, 'I ') +
+                                    substr_count($response, "I'") +
                                     substr_count($response, 'my ') +
                                     substr_count($response, 'me ');
-        
+
         // Academic tone indicators
-        $academicPhrases = ['furthermore', 'therefore', 'consequently', 'thus', 
-                           'in conclusion', 'framework', 'methodology', 'systematic'];
+        $academicPhrases = ['furthermore', 'therefore', 'consequently', 'thus',
+            'in conclusion', 'framework', 'methodology', 'systematic'];
         $academicCount = 0;
         foreach ($academicPhrases as $phrase) {
             $academicCount += substr_count(strtolower($response), $phrase);
         }
         $analysis['academic_tone'] = $academicCount;
-        
+
         return $analysis;
     }
 
@@ -178,16 +180,16 @@ class DebugPromptStructure extends Command
                 $result['analysis']['academic_tone'],
             ];
         }
-        
+
         $this->table(
             ['Test', 'Confrontational', 'Lists', 'Questions', 'Companies', '1st Person', 'Academic'],
             $comparison
         );
-        
+
         // Identify the culprit
         $this->newLine();
         $this->info('🎯 DIAGNOSIS:');
-        
+
         // Compare original vs others
         $original = $results['original-v2']['analysis'] ?? null;
         if ($original) {

@@ -2,20 +2,20 @@
 
 namespace App\Services;
 
+use App\Models\Advisor;
 use App\Models\PlayerContext;
 use App\Models\User;
-use App\Models\Advisor;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
  * PlayerContext Integration Service
- * 
+ *
  * Supports three stages of advisor deployment:
  * - Stage 1: Standalone advisor (PI + PK only, no player context)
  * - Stage 2: PlayerContext integration (PI-level primary, PK-level secondary)
  * - Stage 3: Council mode (future - not implemented yet)
- * 
+ *
  * Based on research findings:
  * - PI-level integration is PRIMARY for Stage 2 (adapts communication style, response format)
  * - PK-level integration is SECONDARY for Stage 2 (filters relevance, not content removal)
@@ -33,7 +33,7 @@ class PlayerContextService
     public function savePlayerContext(User $user, array $contextData): PlayerContext
     {
         Log::info('Saving player context', ['user_id' => $user->id]);
-        
+
         $context = PlayerContext::updateOrCreate(
             ['user_id' => $user->id],
             [
@@ -45,22 +45,22 @@ class PlayerContextService
                 'communication_style' => $contextData['communication_style'] ?? 'direct',
                 'detail_level' => $contextData['detail_level'] ?? 'medium',
                 'example_preference' => $contextData['example_preference'] ?? 'mixed',
-                'framework_preferences' => $contextData['framework_preferences'] ?? []
+                'framework_preferences' => $contextData['framework_preferences'] ?? [],
             ]
         );
-        
+
         Log::info('Player context saved', ['context_id' => $context->id]);
-        
+
         return $context;
     }
 
     /**
      * Generate a personalized advisor with OPTIONAL player context integration
-     * 
-     * @param Advisor $advisor The advisor to generate
-     * @param PlayerContext|null $playerContext Optional player context for personalization
-     * @param bool $includePlayerContext Explicit flag to enable player context integration (default: false)
-     * @param callable|null $progressCallback Optional progress callback
+     *
+     * @param  Advisor  $advisor  The advisor to generate
+     * @param  PlayerContext|null  $playerContext  Optional player context for personalization
+     * @param  bool  $includePlayerContext  Explicit flag to enable player context integration (default: false)
+     * @param  callable|null  $progressCallback  Optional progress callback
      */
     public function generatePersonalizedAdvisor(
         Advisor $advisor,
@@ -71,91 +71,91 @@ class PlayerContextService
         Log::info('Generating advisor', [
             'advisor' => $advisor->name,
             'include_player_context' => $includePlayerContext,
-            'player_context_id' => $playerContext?->id
+            'player_context_id' => $playerContext?->id,
         ]);
-        
+
         if ($progressCallback) {
             $progressCallback(0, 'Starting advisor generation');
         }
-        
+
         try {
             // Generate base advisor with standard generation service
             if ($progressCallback) {
                 $progressCallback(20, 'Generating base advisor');
             }
-            
+
             $baseAdvisor = $this->generationService->generateAdvisor($advisor);
-            
+
             // Only personalize if explicitly requested AND player context exists
             if ($includePlayerContext && $playerContext) {
                 // Enhance PI with player context
                 if ($progressCallback) {
                     $progressCallback(40, 'Personalizing advisor instructions (PI)');
                 }
-                
+
                 $personalizedPI = $this->personalizePI(
                     $baseAdvisor['pi_content'],
                     $advisor,
                     $playerContext
                 );
-                
+
                 // Enhance PK with player context (lighter touch)
                 if ($progressCallback) {
                     $progressCallback(60, 'Personalizing advisor knowledge (PK)');
                 }
-                
+
                 $personalizedPK = $this->personalizePK(
                     $baseAdvisor['pk_content'],
                     $advisor,
                     $playerContext
                 );
-                
+
                 // Create export package for ChatGPT with personalization
                 if ($progressCallback) {
                     $progressCallback(80, 'Creating personalized ChatGPT export package');
                 }
-                
+
                 $exportPackage = $this->createExportPackage(
                     $advisor,
                     $personalizedPI,
                     $personalizedPK,
                     $playerContext
                 );
-                
+
                 // Update export tracking
                 $playerContext->increment('exported_advisors_count');
                 $playerContext->update(['last_advisor_export_at' => now()]);
-                
+
                 $contextSummary = $this->generateContextSummary($playerContext);
             } else {
                 // Use base advisor without personalization
                 $personalizedPI = $baseAdvisor['pi_content'];
                 $personalizedPK = $baseAdvisor['pk_content'];
-                
+
                 // Create standard export package without player context
                 if ($progressCallback) {
                     $progressCallback(80, 'Creating standard ChatGPT export package');
                 }
-                
+
                 $exportPackage = $this->createStandardExportPackage(
                     $advisor,
                     $personalizedPI,
                     $personalizedPK
                 );
-                
+
                 $contextSummary = null;
             }
-            
+
             if ($progressCallback) {
                 $progressCallback(100, 'Advisor ready for export');
             }
-            
+
             Log::info('Advisor generated successfully', [
                 'advisor' => $advisor->name,
                 'personalized' => $includePlayerContext && $playerContext,
-                'export_size' => strlen($exportPackage['full_export'])
+                'export_size' => strlen($exportPackage['full_export']),
             ]);
-            
+
             return [
                 'success' => true,
                 'advisor_name' => $advisor->name,
@@ -164,13 +164,13 @@ class PlayerContextService
                 'export_package' => $exportPackage,
                 'player_context_summary' => $contextSummary,
                 'personalized' => $includePlayerContext && $playerContext,
-                'generated_at' => now()->toIso8601String()
+                'generated_at' => now()->toIso8601String(),
             ];
-            
+
         } catch (\Exception $e) {
             Log::error('Advisor generation failed', [
                 'error' => $e->getMessage(),
-                'advisor' => $advisor->name
+                'advisor' => $advisor->name,
             ]);
             throw $e;
         }
@@ -182,28 +182,29 @@ class PlayerContextService
     protected function personalizePI(string $piContent, Advisor $advisor, PlayerContext $context): string
     {
         Log::info('Personalizing PI with player context');
-        
+
         // Build context injection prompt
         $prompt = $this->buildPIPersonalizationPrompt($piContent, $advisor, $context);
-        
+
         try {
             $personalizedContent = $this->llmService->generateText($prompt, [
-                'model' => config('advisors.stage2.pi_model', 'gpt-4o-mini'),
+                'model' => config('ai-models.purposes.player_context'),
                 'temperature' => 0.3,
-                'max_tokens' => 6000
+                'max_tokens' => 6000,
             ]);
-            
+
             Log::info('PI personalization complete', [
                 'original_length' => strlen($piContent),
-                'personalized_length' => strlen($personalizedContent)
+                'personalized_length' => strlen($personalizedContent),
             ]);
-            
+
             return $personalizedContent;
-            
+
         } catch (\Exception $e) {
             Log::warning('PI personalization failed, using base content', [
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return $piContent; // Fallback to original
         }
     }
@@ -214,28 +215,29 @@ class PlayerContextService
     protected function personalizePK(string $pkContent, Advisor $advisor, PlayerContext $context): string
     {
         Log::info('Personalizing PK with player context');
-        
+
         // For PK, we do lighter personalization focused on relevance
         $prompt = $this->buildPKPersonalizationPrompt($pkContent, $advisor, $context);
-        
+
         try {
             $personalizedContent = $this->llmService->generateText($prompt, [
-                'model' => config('advisors.stage2.pk_model', 'gpt-4o-mini'),
+                'model' => config('ai-models.purposes.player_context'),
                 'temperature' => 0.2, // Lower temperature for PK modifications
-                'max_tokens' => 8000
+                'max_tokens' => 8000,
             ]);
-            
+
             Log::info('PK personalization complete', [
                 'original_length' => strlen($pkContent),
-                'personalized_length' => strlen($personalizedContent)
+                'personalized_length' => strlen($personalizedContent),
             ]);
-            
+
             return $personalizedContent;
-            
+
         } catch (\Exception $e) {
             Log::warning('PK personalization failed, using base content', [
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return $pkContent; // Fallback to original
         }
     }
@@ -252,7 +254,7 @@ class PlayerContextService
         $goals = json_encode($context->goals);
         $communicationStyle = $context->communication_style;
         $detailLevel = $context->detail_level;
-        
+
         return <<<PROMPT
 You are personalizing advisor instructions for a specific player's context.
 
@@ -309,7 +311,7 @@ PROMPT;
         $challenges = json_encode($context->current_challenges);
         $frameworkPreferences = json_encode($context->framework_preferences);
         $examplePreference = $context->example_preference;
-        
+
         return <<<PROMPT
 You are filtering and customizing advisor knowledge for a specific player's context.
 
@@ -368,13 +370,13 @@ PROMPT;
         $fullExport .= "## Project Instructions (PI)\n\n{$pi}\n\n";
         $fullExport .= "---\n\n";
         $fullExport .= "## Project Knowledge (PK)\n\n{$pk}";
-        
+
         // Condensed export (essential information within ChatGPT limits)
         $condensedExport = $this->createCondensedExport($advisor, $pi, $pk, null);
-        
+
         // Setup instructions
         $setupInstructions = $this->generateSetupInstructions($advisor);
-        
+
         return [
             'full_export' => $fullExport,
             'condensed_export' => $condensedExport,
@@ -386,8 +388,8 @@ PROMPT;
                 'personalized_for' => null,
                 'export_date' => now()->toIso8601String(),
                 'full_size' => strlen($fullExport),
-                'condensed_size' => strlen($condensedExport)
-            ]
+                'condensed_size' => strlen($condensedExport),
+            ],
         ];
     }
 
@@ -401,7 +403,7 @@ PROMPT;
         PlayerContext $context
     ): array {
         $contextSummary = $this->generateContextSummary($context);
-        
+
         // Full export (PI + PK) - Stage 2 format with context
         $fullExport = "# {$advisor->name} - Personalized Advisor\n\n";
         $fullExport .= "## Player Context Summary\n{$contextSummary}\n\n";
@@ -409,13 +411,13 @@ PROMPT;
         $fullExport .= "## Project Instructions (PI)\n\n{$personalizedPI}\n\n";
         $fullExport .= "---\n\n";
         $fullExport .= "## Project Knowledge (PK)\n\n{$personalizedPK}";
-        
+
         // Condensed export (essential information within ChatGPT limits)
         $condensedExport = $this->createCondensedExport($advisor, $personalizedPI, $personalizedPK, $contextSummary);
-        
+
         // Setup instructions
         $setupInstructions = $this->generateSetupInstructions($advisor);
-        
+
         return [
             'full_export' => $fullExport,
             'condensed_export' => $condensedExport,
@@ -427,8 +429,8 @@ PROMPT;
                 'personalized_for' => $context->user->name ?? 'User',
                 'export_date' => now()->toIso8601String(),
                 'full_size' => strlen($fullExport),
-                'condensed_size' => strlen($condensedExport)
-            ]
+                'condensed_size' => strlen($condensedExport),
+            ],
         ];
     }
 
@@ -445,31 +447,31 @@ PROMPT;
         $essentialPI = $this->extractEssentialSections($pi, [
             'Core Operating Principles',
             'Communication Framework',
-            'Primary Expertise'
+            'Primary Expertise',
         ]);
-        
+
         // Extract most important sections from PK
         $essentialPK = $this->extractEssentialSections($pk, [
             'Battle-Tested Frameworks',
             'Key Case Studies',
-            'Signature Methodologies'
+            'Signature Methodologies',
         ]);
-        
+
         $condensed = "# {$advisor->name} - Essential Advisor Profile\n\n";
-        
+
         // Only include context if it exists (Stage 2)
         if ($contextSummary) {
             $condensed .= "## Context\n{$contextSummary}\n\n";
         }
-        
+
         $condensed .= "## Core Instructions\n{$essentialPI}\n\n";
         $condensed .= "## Essential Knowledge\n{$essentialPK}";
-        
+
         // Ensure it fits within reasonable ChatGPT limits (approximately 15k tokens ~ 60k characters)
         if (strlen($condensed) > 60000) {
-            $condensed = mb_substr($condensed, 0, 60000) . "\n\n[Content truncated for ChatGPT limits]";
+            $condensed = mb_substr($condensed, 0, 60000)."\n\n[Content truncated for ChatGPT limits]";
         }
-        
+
         return $condensed;
     }
 
@@ -479,14 +481,14 @@ PROMPT;
     protected function extractEssentialSections(string $content, array $sectionHeaders): string
     {
         $extracted = [];
-        
+
         foreach ($sectionHeaders as $header) {
-            $pattern = '/#{1,3}\s*' . preg_quote($header, '/') . '.*?(?=#{1,3}\s|\z)/si';
+            $pattern = '/#{1,3}\s*'.preg_quote($header, '/').'.*?(?=#{1,3}\s|\z)/si';
             if (preg_match($pattern, $content, $matches)) {
                 $extracted[] = trim($matches[0]);
             }
         }
-        
+
         return implode("\n\n", $extracted);
     }
 
@@ -498,28 +500,28 @@ PROMPT;
         $summary = "**Player Profile:**\n";
         $summary .= "- Industry: {$context->industry}\n";
         $summary .= "- Business Type: {$context->business_type}\n";
-        
-        if (!empty($context->background_story)) {
-            $summary .= "- Background: " . Str::limit($context->background_story, 200) . "\n";
+
+        if (! empty($context->background_story)) {
+            $summary .= '- Background: '.Str::limit($context->background_story, 200)."\n";
         }
-        
-        if (!empty($context->current_challenges)) {
-            $challenges = is_array($context->current_challenges) 
+
+        if (! empty($context->current_challenges)) {
+            $challenges = is_array($context->current_challenges)
                 ? implode(', ', array_slice($context->current_challenges, 0, 3))
                 : $context->current_challenges;
             $summary .= "- Current Focus: {$challenges}\n";
         }
-        
-        if (!empty($context->goals)) {
+
+        if (! empty($context->goals)) {
             $goals = is_array($context->goals)
                 ? implode(', ', array_slice($context->goals, 0, 2))
                 : $context->goals;
             $summary .= "- Goals: {$goals}\n";
         }
-        
+
         $summary .= "- Communication Style: {$context->communication_style}\n";
         $summary .= "- Detail Preference: {$context->detail_level}";
-        
+
         return $summary;
     }
 
@@ -588,7 +590,7 @@ INSTRUCTIONS;
         return [
             'total_exports' => $context->exported_advisors_count,
             'last_export' => $context->last_advisor_export_at,
-            'player_id' => $context->id
+            'player_id' => $context->id,
         ];
     }
 }
