@@ -1,0 +1,21 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class AdvisorPosition extends Model
+{
+    protected $fillable = [
+        'advisor_key',
+        'researched_positions',
+        'research_model',
+        'research_temperature',
+        'metadata',
+    ];
+
+    protected $casts = [
+        'metadata' => 'array',
+        'research_temperature' => 'float',
+    ];
+}

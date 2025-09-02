@@ -1,0 +1,26 @@
+Querying perplexity using sonar-pro for: empirical research AI persona consistency believability user perception disagreement autonomous agents character authenticity with maxTokens: 21000
+Empirical research shows that **AI persona consistency and believability** are central to how users perceive, trust, and interact with autonomous agents, yet there can be significant **disagreement** between user ratings, intended character authenticity, and the actual quality of the agent’s persona[1][4][5].
+
+Key findings from recent studies include:
+
+- **Believability and Persona Consistency:** Users assess AI agents’ believability across traits like behavior, intelligence, and social engagement, but consistently lower ratings are observed for *personality* and *agency*, even when agents are explicitly designed to act in less relatable ways (e.g., reserved or socially awkward)[1].
+  
+- In empirical tests, agents that were purposefully designed to exhibit certain “unappealing” traits (e.g., being taciturn or anxious) received low scores for warmth or emotional expressivity, despite faithfully embodying the designer's intent[1]. This highlights a **disagreement between user perception and technical character authenticity**: agents can be authentic to their scripted persona, but users may still judge them as less believable or desirable interaction partners[1][5].
+  
+- **Evaluation Methods:** Researchers employ tools like the **Virtual Agent Believability Questionnaire** and the **Persona Perception Scale (PPS)** to measure qualities such as credibility, completeness, and consistency[1][4][5]. These instruments reveal that believability is multidimensional; strong adherence to a designed persona does not guarantee user affinity if the chosen traits are not appealing[1][5].
+
+- **False Anthropomorphism and Trust:** Users tend to anthropomorphize agents with human-like cues, often overestimating their intelligence or emotional depth, which can inflate trust even when the agent's internal state is just a simulation[2]. This results in a persistent gap between the *appearance* of authenticity and the user's perception of an “authentic character”[2].
+
+- **Persona Simulation Accuracy:** Large-scale empirical work has demonstrated that LLM-driven agents can simulate real individuals’ personas with high fidelity, reflecting actual decision-making patterns[3]. Still, even accurate simulations do not always translate into perceived authenticity or relational trust from users, especially where the persona displays less socially desirable trait combinations[3][1].
+
+- **Limitations in Assessment:** Some recent studies removed “consistency” as a metric from evaluation due to perceived irrelevance in specific contexts, reflecting ongoing debate over which qualities most strongly influence user perception of authenticity and usefulness[4].  
+
+| **Aspect**                | **Empirical Findings**                                                                                             | **User Perception**                                      | **Disagreement/Insight**                                           |
+|--------------------------|-------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------|--------------------------------------------------------------------|
+| Persona consistency      | Technically achieved even with less appealing traits                                                              | Often scored lower if traits are introverted/awkward     | Users value likability and warmth, not just consistency[1][5]      |
+| Believability            | Human raters use multidimensional tools (behavior, emotion, intelligence)                                         | High ratings for social, intelligent, relatable personas | Believability scores fall if persona is authentic but unappealing[1][5] |
+| Character authenticity   | Agents can faithfully reflect scripted/socially accurate behavior                                                 | Users may still call them “inauthentic” or “cold”        | Authenticity ≠ perceived “realness” or desirability[1][3][5]       |
+| Overtrust (Anthropomorphism) | Users assign mind-like abilities when agents use self-referential or emotional language                           | Can overtrust even when agent just mimics emotional cues | False sense of awareness and capability[2]                         |
+| Measurement tools        | PPS, Virtual Agent Believability Questionnaire, Turing-like tests                                                 | Offer structured user perception data                    | No single tool captures full nuance of believability/authenticity[1][5] |
+
+Empirical research thus reveals substantial **disagreement between user perception and technical criteria for persona consistency or authenticity**, especially as users prioritize warmth, relatability, and “human-ness” over strict personality consistency[1][2][4][5]. Overtrust fueled by anthropomorphism is also a persistent concern, complicating the link between agent design and user trust or believability[2].

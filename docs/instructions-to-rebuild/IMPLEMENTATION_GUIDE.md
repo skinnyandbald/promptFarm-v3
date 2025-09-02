@@ -1,7 +1,8 @@
 # PromptFarm v4 — Implementation Guide (Laravel 12, CLI‑First)
 
-**Version:** 2.0.0 | **Updated:** August 31, 2025  
-**Latest Models:** OpenAI o3-deep (deep research), OpenAI o4-mini-deep-research (alternate deep), OpenAI GPT‑5 Mini (light via OpenRouter)
+**Version:** 3.0.0 | **Updated:** September 1, 2025  
+**Model Strategy:** GPT-4 Turbo (PK generation), Grok-3 via OpenRouter (PI enhancement)
+**Key Insight:** Solution is PROMPTING with analytical tensions, NOT deep research models
 **Approach:** NEW PROJECT from scratch - NOT a refactor
 
 ## 🚀 START HERE: Speed-to-Value Approach
@@ -188,9 +189,9 @@ You're essentially **engineering your perfect advisory board** - assembling exac
 **In Simple Terms:** A system that generates two markdown files (PI and PK) containing an expert advisor's personality and knowledge, which users paste into ChatGPT to transform it into that expert.
 
 **Technical Components:**
-1. **Laravel Backend**: Generates advisor files using templates + OpenAI (deep research)
+1. **Laravel Backend**: Generates advisor files using hybrid approach (deterministic PI + LLM-enhanced examples)
 2. **CLI‑First Validation**: Review generated files locally; UI added later inside Laravel (Inertia + React + TS + Tailwind + shadcn)
-3. **No Database in M0**: Just file generation, no user accounts or persistence
+3. **Database from Start**: SQLite for advisor metadata and generation tracking
 4. **No Separate Frontend App**: Users get files and use them in ChatGPT; future UI lives in this Laravel app
 
 ### Laravel Boost MCP (Required)
@@ -229,25 +230,36 @@ System creates:
 User copies both into ChatGPT → ChatGPT becomes Alex Hormozi
 ```
 
-## Model Strategy (August 2025)
+## Model Strategy - Prompting Solution, Not Deep Research
 
-### Deep Research (PK)
-- Default: OpenAI `o3-deep` (direct API)
-- Variant to benchmark: `o4-mini-deep-research`
+### Why NOT Deep Research Models?
+Analysis proved PK generation failures were due to:
+- Template mismatch (not reasoning limitations)
+- Insufficient examples (not model capability)
+- Missing sections (not depth of thought)
 
-### Light Tasks (non‑deep)
-- Default: OpenAI GPT‑5 Mini (via OpenRouter)
+### Actual Model Strategy
+
+#### PI Generation (Hybrid)
+1. **Stage 1**: Deterministic template substitution (instant)
+2. **Stage 2**: Grok-3 via OpenRouter for examples (2-3 seconds, temperature 0.3)
+
+#### PK Generation (Standard Models)
+- **Model**: gpt-4o-mini (fast, cost-effective)
+- **Approach**: Analytical tensions framework
+- **Temperature**: 0.7-0.85 (advisor-specific)
+- **Cost**: 80-90% reduction vs deep research models
 
 ## 1) Executive Summary (≤10 bullets)
 
 - **New Approach**: Build from scratch with speed-to-value focus - working CLI in hours
 - **Day 1 Goal**: Hardcoded advisor files → Working CLI generation with PI/PK separation → Test immediately
 - **Day 2 Goal**: Template-based PI generation + LLM-based PK generation → Dynamic advisors
-- **Skip Complexity**: No database, no Laravel backend, no queues, no auth for MVP
+- **Smart Complexity**: Database from start, hybrid generation for quality, progressive enhancement
 - **Copy What Works**: Reuse proven templates, prompts, and patterns from v2
-- **Core Tech**: Laravel 12; deep via OpenAI (GPT‑5), light via OpenRouter (GPT‑5 Mini); UI added later inside Laravel (Inertia + React + TS + Tailwind + shadcn)
+- **Core Tech**: Laravel 12; PK via GPT-4 Turbo, PI enhancement via Grok-3 (OpenRouter); UI added later inside Laravel (Inertia + React + TS + Tailwind + shadcn)
 - **Critical Architecture**: PI as system prompt (behavior), PK as knowledge context (searchable)
-- **Model Strategy**: Deep research via OpenAI direct; non-deep tasks via OpenRouter
+- **Model Strategy**: x-ai/grok-3 via OpenRouter for both PI and PK generation [ACTUAL IMPLEMENTATION]
 - **Success Metric**: Can generate advisor and have authentic conversation in under 30 seconds
 - **Total Time**: 4 days to full MVP (vs 5+ days with original plan)
 
@@ -321,69 +333,62 @@ graph TB
 
 ### LLM Model Configuration (CRITICAL)
 
-#### Two-Tier Model Strategy
+#### Model Strategy (Hybrid Approach)
 ```php
 // config/advisor.php
 return [
     'generation' => [
-        // Light model for simple tasks (PI generation from templates)
-        'light_model' => env('ADVISOR_LIGHT_MODEL', 'gpt-5-mini'),
+        // PK generation model (standard model with analytical tensions)
+        'pk_model' => env('OPENAI_MODEL_PK', 'gpt-4o-mini'),
         
-        // Heavy model for deep research (PK generation)
-        'deep_research_model' => env('ADVISOR_DEEP_MODEL_OPENAI', 'gpt-5'), // Alternatives to benchmark: 'o4-mini-deep-research', 'o3-deep'
+        // PI enhancement model (via OpenRouter)
+        'pi_enhancement_model' => env('OPENROUTER_MODEL_PI_ENHANCE', 'x-ai/grok-3'),
         
         // Model-specific parameters
         'models' => [
-            'openai/gpt-5-mini' => [
-                'temperature' => 0.7,
-                'max_tokens' => 4000,
+            'openai/gpt-4o-mini' => [
+                'temperature' => 0.75,  // Optimal range: 0.7-0.85
+                'max_tokens' => 8000,
                 'top_p' => 0.9,
                 'provider' => 'openai',
             ],
-            'openai/o4-mini-deep-research' => [
-                'temperature' => 0.5,
-                'max_tokens' => 32000,
-                'provider' => 'openai',
-            ],
-            'openai/o3-deep' => [
-                'temperature' => 0.5,
-                'max_tokens' => 32000,
-                'provider' => 'openai',
+            'x-ai/grok-3' => [
+                'temperature' => 0.3,  // Lower for PI enhancement consistency
+                'max_tokens' => 5000,
+                'provider' => 'openrouter',
             ],
         ],
     ],
 ];
 ```
 
-#### Deep Research Model Variants (to test)
-- Default: `gpt-5`
-- Alternatives: `o4-mini-deep-research`, `o3-deep`
-- Toggle via `.env`: `ADVISOR_DEEP_MODEL_OPENAI=o4-mini-deep-research` (or `o3-deep`), regenerate PK, compare quality.
- - See `DEEP_MODEL_BENCHMARKS.md` for step-by-step comparison.
+#### Model Selection Rationale
+- **gpt-4o-mini**: Fast, cost-effective for PK generation with analytical tensions
+- **Grok-3**: Unfiltered responses for authentic PI enhancement examples
+- **No Deep Research**: Analysis proved PK is narrative construction, not reasoning
 
 #### Model Usage by Component
 | Component | Model | Purpose | Cost |
 |-----------|-------|---------|------|
-| **PI Generation** | None/Template | Uses Mustache templates directly | $0 |
-| **PK Generation** | **OpenAI (GPT‑5)** | Deep research, 4000-6000 word output | variable |
+| **PI Stage 1** | None/Template | Deterministic substitution | $0 |
+| **PI Stage 2** | Grok-3 via OpenRouter | Enhancement with examples | ~$0.001 |
+| **PK Generation** | gpt-4o-mini | Analytical tensions framework | ~$0.002 |
 | **Testing (CLI)** | n/a | Review generated files via CLI | $0 |
-| **Validation** | Claude 4.0 Haiku | Quick quality checks (optional) | ~$0.001/check |
-| **Future: Refinement** | Claude 4.0 Haiku | Quick edits, tweaks (M1+) | ~$0.001/edit |
+| **Validation** | Authenticity metrics | Confrontational tone, specificity | $0 |
+| **Future: Refinement** | gpt-4o-mini | Quick edits, tweaks (M1+) | ~$0.001/edit |
 
-#### Light Model Usage (Currently Minimal)
-The light model (OpenAI GPT‑5 Mini) is configured but **not actively used in M0** since:
-- **PI Generation**: Uses templates directly, no LLM needed
-- **PK Generation**: Requires deep research model (OpenAI)
+#### Why This Architecture Works
+Analysis proved PK generation is a **narrative construction task**, not a reasoning task:
+- **PI Enhancement**: Grok-3 adds specific examples and uncomfortable truths
+- **PK Generation**: gpt-4o-mini with analytical tensions framework is sufficient
+- **Cost Reduction**: 80-90% cheaper vs previous approaches
+- **Speed**: 5-10x faster generation
 
-In v2, the light model was used for council coordination and validation. In v3 M0, it's only kept for:
-- Future quick validations
-- Potential PI customization (M1+)
-- Error recovery/retries
-
-#### Why OpenAI for PK?
-- **Research Depth**: Strong long-form quality for PK documents
-- **Reliability**: Direct API calls for deep research tasks
-- **OpenRouter Complement**: Use OpenRouter for non-deep tasks and validation
+#### Key Insight: Prompting Solves Quality
+- **Analytical Tensions**: Framework that triggers reasoning in output
+- **Uncomfortable Truths**: Focus on what makes users think
+- **Voice Anchors**: 3-4 sentences establishing identity
+- **Minimal Structure**: Maximum personality, no rigid templates
 
 ## 4) Data Model & Schema
 
@@ -544,41 +549,45 @@ validation_rules:
 ### LLM Prompt Generation Patterns (Critical)
 
 ```php
-// app/Services/Advisor/PKGenerationService.php (example usage via our services)
-use App\Services\AdvisorGeneration\LLMIntegrationService;
+// app/Services/Advisor/PKGenerationService.php
+use App\Services\LLMService;
 
 class PKGenerationService {
     public function __construct(
-        private LLMIntegrationService $llm
+        private LLMService $llm,
+        private AnalyticalTensionService $tensions
     ) {}
 
-    public function generate(string $advisorName, array $context = [], ?string $deepModel = null): array
+    public function generate(string $advisorName, array $context = []): string
     {
-        // Phase 1: Deep research report (Markdown)
-        $report = $this->llm->generatePKDeepResearchReport($advisorName, $context, $deepModel);
-
-        // Phase 2: Structured extraction (JSON Schema via OpenAI)
-        $json = $this->llm->extractPKStructuredFromReport($advisorName, $report, $deepModel);
-
-        return [
-            'report' => $report,
-            'json' => $json,
-        ];
+        // Build analytical tension prompt
+        $prompt = $this->tensions->buildPrompt($advisorName, $context);
+        
+        // Generate PK using standard model with analytical tensions
+        $pkContent = $this->llm->generateText($prompt, [
+            'model' => config('advisor.generation.pk_model'),
+            'temperature' => 0.75,
+            'max_tokens' => 8000,
+            'system_message' => 'Generate uncomfortable truths using analytical tensions.'
+        ]);
+        
+        return $pkContent;
     }
 }
 ```
 
 ## 6) Simplification Principles (Guardrails)
 
-2. **File-Based Interface**: PI/PK files are the contract between systems
-3. **Model Parity Testing**: Use GPT-5 (ChatGPT's latest model) for accurate testing
-4. **No Copy/Paste**: Web UI reads files directly from storage
-5. **Repository Pattern**: All persistence through interfaces (future-ready)
-6. **Stable Interfaces**: Core types unchanging M0→M3
-7. **No Player Context**: Advisors are pure personas at M0
-8. **Synchronous First**: No queues until necessary
-9. **Direct File Access**: Both systems share storage/app/advisor-files/ directory
-10. **Progressive Enhancement**: M0 works standalone; M1+ adds without breaking
+1. **File-Based Interface**: PI/PK files are the contract between systems
+2. **Model Parity Testing**: Use latest ChatGPT model for accurate testing
+3. **No Copy/Paste**: Web UI reads files directly from storage
+4. **Repository Pattern**: All persistence through interfaces (future-ready)
+5. **Stable Interfaces**: Core types unchanging M0→M3
+6. **No Player Context**: Advisors are pure personas at M0
+7. **Synchronous First**: No queues until necessary
+8. **Direct File Access**: Both systems share storage/app/advisor-files/ directory
+9. **Progressive Enhancement**: M0 works standalone; M1+ adds without breaking
+10. **Prompting Over Models**: Better prompts beat expensive models
 
 ## 7) Quality Validation & Verification
 
@@ -725,7 +734,7 @@ export class AdvisorAPI {
 #### Development (M0)
 ```bash
 # Two separate processes
-cd promptfarm-v2 && php artisan serve --port=8000  # Laravel
+cd promptfarm-v3 && php artisan serve --port=8000  # Laravel
 ```
 
 #### Production (M2+)
@@ -833,7 +842,7 @@ promptFarm-v4/
 ### Data Flow
 1. Generation: `php artisan advisor:generate <Name>` → PI/PK_report/PK to `storage/app/advisor-files`
 2. Iteration: Edit templates → Regenerate → Review outputs via CLI
-3. Benchmark (optional): `scripts/benchmark-deep-models.sh <Name>` → compare PK variants
+3. Quality Check: Review generated files for authenticity metrics (confrontational tone, specificity)
 
 ## 11) Implementation Plan — Step-by-Step (Junior-Dev Ready)
 
@@ -1316,7 +1325,7 @@ php artisan pest:install --no-interaction
 
 # 3) Env + key
 php -r "copy('.env.example','.env');" && php artisan key:generate --no-interaction
-printf "\nQUEUE_CONNECTION=sync\nOPENAI_API_KEY=sk-openai-...\nOPENROUTER_API_KEY=sk-or-...\nADVISOR_DEEP_PROVIDER=openai\nADVISOR_DEEP_MODEL_OPENAI=gpt-5\nADVISOR_DEEP_MODEL_OPENROUTER=openai/gpt-5\nADVISOR_LIGHT_MODEL=gpt-5-mini\nPK_MAX_TOKENS=32000\nPI_MAX_TOKENS=4000\n" >> .env
+printf "\nQUEUE_CONNECTION=sync\nOPENAI_API_KEY=sk-openai-...\nOPENROUTER_API_KEY=sk-or-...\nOPENAI_MODEL_PK=gpt-4o-mini\nOPENROUTER_MODEL_PI_ENHANCE=x-ai/grok-3\nPK_MAX_TOKENS=8000\nPI_MAX_TOKENS=5000\n" >> .env
 
 # 4) Optional SQLite
 mkdir -p database && touch database/database.sqlite
@@ -1385,10 +1394,8 @@ Log::channel('advisor')->info('Generation started', [
 QUEUE_CONNECTION=sync
 OPENAI_API_KEY=sk-openai-xxx
 OPENROUTER_API_KEY=sk-or-xxx
-ADVISOR_DEEP_PROVIDER=openai
-ADVISOR_DEEP_MODEL_OPENAI=gpt-5
-ADVISOR_DEEP_MODEL_OPENROUTER=openai/gpt-5
-ADVISOR_LIGHT_MODEL=gpt-5-mini
+OPENAI_MODEL_PK=gpt-4o-mini
+OPENROUTER_MODEL_PI_ENHANCE=x-ai/grok-3
 PK_MAX_TOKENS=32000
 PI_MAX_TOKENS=4000
 ```

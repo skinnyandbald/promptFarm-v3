@@ -1,0 +1,77 @@
+# CodeRabbit Configuration
+# Documentation: https://docs.coderabbit.ai/guides/configure-coderabbit
+
+# Auto-review configuration - triggers on ALL pull requests
+# NOTE: This will review on PR creation AND every push. 
+# To review only on creation:
+#   1. Let it do initial review
+#   2. Comment: @coderabbitai pause
+#   3. For manual reviews: @coderabbitai review
+auto_review:
+  enabled: true
+  # Skip draft PRs (optional)
+  drafts: false
+
+# Review configuration
+reviews:
+  # Review tone: assertive, chill, or concise
+  profile: chill
+  # Enable high-level summary
+  high_level_summary: true
+  # Disable poems in reviews
+  poem: false
+  # Review language
+  review_language: en
+  # Enable status comments
+  review_status: true
+  # Don't collapse walkthrough by default
+  collapse_walkthrough: false
+  # Enable request changes workflow
+  request_changes_workflow: true
+  
+# Path filters to ignore certain files
+path_filters:
+  # Ignore vendor and dependency directories
+  - "vendor/**"
+  - "node_modules/**"
+  - "bootstrap/cache/**"
+  - "storage/**"
+  
+  # Ignore compiled assets
+  - "public/build/**"
+  - "public/hot"
+  - "**/*.min.js"
+  - "**/*.min.css"
+  
+  # Ignore lock files and logs
+  - "**/*.lock"
+  - "**/*.log"
+  - ".env*"
+  
+  # Ignore IDE and system files
+  - ".idea/**"
+  - ".vscode/**"
+  - ".DS_Store"
+  
+# Language-specific settings
+language_settings:
+  # PHP/Laravel settings
+  php:
+    enabled: true
+    # Additional PHP-specific checks can be configured here
+    
+  # JavaScript settings
+  javascript:
+    enabled: true
+    
+  # CSS/SCSS settings
+  css:
+    enabled: true
+
+# Chat settings
+chat:
+  auto_reply: true
+
+# Early access features
+early_access:
+  enabled: false
