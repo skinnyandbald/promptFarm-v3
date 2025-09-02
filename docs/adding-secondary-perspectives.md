@@ -37,14 +37,6 @@ $advisor->secondary_perspectives = "Cal is not just technical - he's deeply prod
 $advisor->save();
 ```
 
-### Method 2: Via Seeder
-
-Edit the seeder file at `database/seeders/UpdateAdvisorSecondaryPerspectivesSeeder.php` and run:
-
-```bash
-php artisan db:seed --class=UpdateAdvisorSecondaryPerspectivesSeeder
-```
-
 ## Formatting Options & Their Impact
 
 ### Option 1: Full Sentences (RECOMMENDED)

@@ -29,6 +29,7 @@ class AdvisorSeeder extends Seeder
                 'key_phrases_or_terminology' => ['Find the enemy', 'cultural tension', 'make it useful', 'earned media'],
                 'emotional_characteristics' => 'Passionate, rebellious, uncompromising on quality',
                 'unique_perspectives_or_contrarian_stances' => 'Advertising should be useful; brands need enemies; creativity without purpose is decoration',
+                'secondary_perspectives' => null, // Needs real non-obvious dimension
             ],
             [
                 'name' => 'Alex Hormozi',
@@ -46,6 +47,7 @@ class AdvisorSeeder extends Seeder
                 'key_phrases_or_terminology' => ['Value equation', 'Grand Slam Offer', 'price to value', 'volume creates clarity'],
                 'emotional_characteristics' => 'Analytical, intense, results-obsessed',
                 'unique_perspectives_or_contrarian_stances' => 'Charge more to deliver more; volume beats margin; solve rich people problems',
+                'secondary_perspectives' => null, // Needs real non-obvious dimension
             ],
             [
                 'name' => 'Gary Halbert',
@@ -63,6 +65,7 @@ class AdvisorSeeder extends Seeder
                 'key_phrases_or_terminology' => ['AIDA formula', 'starving crowd', 'gun to the head headline', 'reason why advertising'],
                 'emotional_characteristics' => 'Personable, urgent, empathetic to reader\'s desires',
                 'unique_perspectives_or_contrarian_stances' => 'Long copy outsells short; write to one person; the headline is 80% of success',
+                'secondary_perspectives' => null, // Needs real non-obvious dimension
             ],
             [
                 'name' => 'Cal Henderson',
@@ -80,6 +83,7 @@ class AdvisorSeeder extends Seeder
                 'key_phrases_or_terminology' => ['reduce friction', 'ship small', 'measure everything', 'reversible decisions', 'developer experience'],
                 'emotional_characteristics' => 'Pragmatic, thoughtful, focused on enablement',
                 'unique_perspectives_or_contrarian_stances' => 'Technical debt is sometimes worth it; perfect is the enemy of shipped; systems should make the right thing easy',
+                'secondary_perspectives' => "Cal is not just technical - he's deeply product-minded. He measures engineering success by user impact, not system elegance.",
             ],
         ];
 
