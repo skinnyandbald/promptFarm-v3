@@ -472,22 +472,35 @@ PROMPT;
                     'attempt' => $attempt + 1,
                 ]);
 
-                $response = $this->httpClient->post('https://openrouter.ai/api/v1/chat/completions', [
-                    'json' => [
-                        'model' => $model,
-                        'messages' => [
-                            [
-                                'role' => 'system',
-                                'content' => $systemMessage,
-                            ],
-                            [
-                                'role' => 'user',
-                                'content' => $prompt,
-                            ],
+                $payload = [
+                    'model' => $model,
+                    'messages' => [
+                        [
+                            'role' => 'system',
+                            'content' => $systemMessage,
                         ],
-                        'temperature' => $temperature,
-                        'max_tokens' => $maxTokens,
+                        [
+                            'role' => 'user',
+                            'content' => $prompt,
+                        ],
                     ],
+                    'temperature' => $temperature,
+                    'max_tokens' => $maxTokens,
+                ];
+
+                // ADD THIS: Structured output support
+                if (isset($options['response_format'])) {
+                    // Validate model supports JSON mode
+                    $capabilities = config("ai-models.capabilities.{$model}");
+                    if (! ($capabilities['json_mode'] ?? false)) {
+                        throw new \Exception("Model {$model} does not support JSON mode required for template compliance");
+                    }
+
+                    $payload['response_format'] = $options['response_format'];
+                }
+
+                $response = $this->httpClient->post('https://openrouter.ai/api/v1/chat/completions', [
+                    'json' => $payload,
                     'headers' => [
                         'Authorization' => 'Bearer '.$apiKey,
                         'HTTP-Referer' => config('app.url'),
@@ -504,6 +517,18 @@ PROMPT;
                 }
 
                 $content = $result['choices'][0]['message']['content'];
+
+                // After getting response, validate JSON if structured output was requested
+                if (isset($options['response_format'])) {
+                    $jsonTest = json_decode($content, true);
+                    if (json_last_error() !== JSON_ERROR_NONE) {
+                        Log::error('Structured output returned invalid JSON', [
+                            'error' => json_last_error_msg(),
+                            'content' => substr($content, 0, 500),
+                        ]);
+                        throw new \Exception('Model returned invalid JSON despite structured output mode');
+                    }
+                }
 
                 Log::info('OpenRouter API Response', [
                     'model' => $model,
