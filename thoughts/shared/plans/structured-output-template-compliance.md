@@ -1,838 +1,552 @@
-# Structured Output for Template Compliance Implementation Plan
+# Template Compliance Implementation Plan (Simplified)
 
 ## Overview
 
-Implement structured output support in the LLM service to ensure generated content exactly matches our template structures, particularly preserving critical emphasis markers like "Voice Anchor (CRITICAL - STUDY THIS)" that signal importance to both LLMs and humans.
+Implement a realistic approach to template compliance that accepts LLMs aren't perfect but uses retry logic, validation, and Mustache as a safety net to achieve high compliance rates.
 
 ## Current State Analysis
 
-The PK generation process currently has a critical flaw where carefully designed templates with emphasis markers are completely ignored in favor of hardcoded prompts, resulting in loss of structural requirements and emphasis that make advisors effective.
+The PK generation process ignores templates, creating unauthorized sections and losing critical emphasis markers. LLMs treat templates as suggestions rather than requirements.
 
 ### Key Discoveries:
-- Template `meta_pk_template_v1.md` defines exact structure with emphasis markers (`AdvisorGenerationService.php:380`)
-- `buildEnhancedGenerationPrompt` receives but ignores the processed template (`AdvisorGenerationService.php:610`)
-- OpenRouter supports structured output via `response_format` parameter (OpenRouter API docs)
-- Models like `x-ai/grok-3` have `json_mode: true` capability (`config/ai-models.php:110-136`)
-- Emphasis markers (CAPS, bold, parentheses) are critical for LLM attention but currently lost
+- Template `meta_pk_template_v1.md` has specific structure with emphasis markers
+- Current generation completely ignores template, creates its own sections
+- LLMs are inherently creative and resist strict structure
+- Perfect compliance on first attempt is unrealistic
 
 ## Desired End State
 
-After implementation, the PK generation will:
-1. Use structured output to guarantee exact template section compliance
-2. Preserve all emphasis markers from templates in generated content
-3. Validate generated content against template requirements
-4. Provide fallback to template-based generation for non-JSON models
+A system that:
+1. Shows the template to the LLM with strict instructions
+2. Gets JSON response with variable values
+3. Uses Mustache to render the template
+4. Validates compliance
+5. Retries with stronger instructions if needed
+6. Fails loudly after max attempts
 
-Verification: Generated PKs will contain exact headers like "## **Voice Anchor (CRITICAL - STUDY THIS)**" instead of plain "## Voice Anchor"
+Success rate target: 80% on first attempt, 95% after retries.
 
 ## What We're NOT Doing
 
-- NOT changing the template structure itself
-- NOT modifying PI generation (separate concern)
-- NOT implementing structured output for all LLM calls (only where template compliance is critical)
-- NOT requiring all models to support structured output (will provide fallback)
+- NOT expecting 100% compliance on first attempt
+- NOT hiding the template from the LLM (loses context)
+- NOT implementing complex multi-stage generation
+- NOT creating fallback generation strategies
 
 ## Implementation Approach
 
-Use a three-layer approach:
-1. Add structured output support to LLMService
-2. Create JSON schemas from template requirements
-3. Update PK generation to use structured output with template-based fallback
+**The Reality:** LLMs will sometimes ignore instructions. Instead of preventing this, we detect and retry.
 
-## Phase 1: Add Structured Output Support to LLMService
+## Phase 1: Install Mustache and Add JSON Support
 
 ### Overview
-Enable the LLMService to send `response_format` parameters to OpenRouter and handle structured responses.
+Basic infrastructure for template rendering and structured responses.
 
 ### Changes Required:
 
-#### 1. Update LLMService OpenRouter Integration
+#### 1. Install Mustache
+```bash
+composer require mustache/mustache
+```
+
+#### 2. Add Structured Output Support to LLMService
 **File**: `app/Services/LLMService.php`
-**Changes**: Add response_format support to generateTextWithOpenRouter method
+**Changes**: Add response_format parameter support for OpenRouter
 
 ```php
-// Around line 481-495, modify the JSON payload
-$response = $this->httpClient->post('https://openrouter.ai/api/v1/chat/completions', [
-    'json' => [
-        'model' => $model,
-        'messages' => [
-            [
-                'role' => 'system',
-                'content' => $systemMessage,
-            ],
-            [
-                'role' => 'user',
-                'content' => $prompt,
-            ],
-        ],
-        'temperature' => $temperature,
-        'max_tokens' => $maxTokens,
-        // Add structured output support
-        'response_format' => $options['response_format'] ?? null,
+// In generateTextWithOpenRouter method, modify the payload:
+$payload = [
+    'model' => $model,
+    'messages' => [
+        ['role' => 'system', 'content' => $systemMessage],
+        ['role' => 'user', 'content' => $prompt]
     ],
-    // ... headers remain the same
-]);
-```
+    'temperature' => $temperature,
+    'max_tokens' => $maxTokens,
+];
 
-#### 2. Add Model Capability Validation
-**File**: `app/Services/LLMService.php`
-**Changes**: Validate JSON mode support before using structured output
-
-```php
-// Add after line 464 (after model selection)
+// ADD THIS: Structured output support
 if (isset($options['response_format'])) {
-    $responseFormat = $options['response_format'];
-    
-    if ($responseFormat['type'] === 'json_schema' || $responseFormat['type'] === 'json_object') {
-        $capabilities = config("ai-models.capabilities.{$model}");
-        if (!($capabilities['json_mode'] ?? false)) {
-            Log::warning("Model {$model} does not support JSON mode, falling back to text");
-            unset($options['response_format']);
-        }
+    // Validate model supports JSON mode
+    $capabilities = config("ai-models.capabilities.{$model}");
+    if (!($capabilities['json_mode'] ?? false)) {
+        throw new \Exception("Model {$model} does not support JSON mode required for template compliance");
     }
-}
-```
-
-#### 3. Handle Structured Responses
-**File**: `app/Services/LLMService.php`
-**Changes**: Parse JSON responses when structured output is used
-
-```php
-// After line 511 (after getting content)
-// If structured output was requested, validate and parse JSON
-if (isset($options['response_format']) && 
-    in_array($options['response_format']['type'], ['json_schema', 'json_object'])) {
     
-    $jsonContent = json_decode($content, true);
+    $payload['response_format'] = $options['response_format'];
+}
+
+$response = $this->httpClient->post('https://openrouter.ai/api/v1/chat/completions', [
+    'json' => $payload,
+    'headers' => [
+        'Authorization' => 'Bearer ' . $apiKey,
+        'HTTP-Referer' => config('app.url'),
+        'X-Title' => config('app.name'),
+    ],
+]);
+
+// After getting response, validate JSON if structured output was requested
+if (isset($options['response_format'])) {
+    $content = $response['choices'][0]['message']['content'] ?? '';
+    $jsonTest = json_decode($content, true);
     if (json_last_error() !== JSON_ERROR_NONE) {
         Log::error('Structured output returned invalid JSON', [
             'error' => json_last_error_msg(),
             'content' => substr($content, 0, 500)
         ]);
-        throw new \Exception('Invalid JSON in structured output response');
+        throw new \Exception('Model returned invalid JSON despite structured output mode');
     }
-    
-    // If schema validation is needed, it would go here
-    // For now, return the JSON as string for backward compatibility
-    $content = json_encode($jsonContent, JSON_PRETTY_PRINT);
 }
 ```
 
 ### Success Criteria:
-
-#### Automated Verification:
-- [ ] Unit test for response_format parameter passing: `php artisan test --filter LLMServiceTest`
-- [ ] Integration test with OpenRouter (mock): `php artisan test --filter OpenRouterIntegrationTest`
-- [ ] Validation test for non-JSON models: `php artisan test --filter ModelCapabilityTest`
-
-#### Manual Verification:
-- [ ] Test with JSON-capable model returns valid JSON
-- [ ] Test with non-JSON model falls back gracefully
-- [ ] Verify no regression in existing PI/PK generation
+- [ ] Mustache installed
+- [ ] JSON mode parameter passes to OpenRouter
+- [ ] Non-JSON models throw exception
 
 ---
 
-## Phase 2: Create PK Structure Schema
+## Phase 2: Simple PK Generation with Retry Logic
 
 ### Overview
-Define a JSON schema that enforces the exact template structure with emphasis markers.
+The core generation logic with built-in retry mechanism.
 
 ### Changes Required:
 
-#### 1. Create Schema Definition Class
-**File**: `app/Services/Schema/PKStructureSchema.php` (new file)
-**Changes**: Define the structured output schema for PK
+#### 1. Rewrite generatePK Method
+**File**: `app/Services/AdvisorGenerationService.php`
+**Changes**: Simple approach with retries
 
 ```php
-<?php
-
-namespace App\Services\Schema;
-
-class PKStructureSchema
+protected function generatePK(array $advisorData, int $maxAttempts = 3): array
 {
-    public static function getSchema(): array
-    {
-        return [
-            'type' => 'json_schema',
-            'json_schema' => [
-                'name' => 'advisor_pk',
-                'strict' => true,
-                'schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'voice_anchor' => [
-                            'type' => 'object',
-                            'properties' => [
-                                'section_title' => [
-                                    'type' => 'string',
-                                    'const' => '## **Voice Anchor (CRITICAL - STUDY THIS)**'
-                                ],
-                                'voice_dna' => [
-                                    'type' => 'object',
-                                    'properties' => [
-                                        'label' => ['type' => 'string', 'const' => '**Voice DNA:**'],
-                                        'content' => ['type' => 'string', 'minLength' => 50]
-                                    ],
-                                    'required' => ['label', 'content']
-                                ],
-                                'voice_examples' => [
-                                    'type' => 'object',
-                                    'properties' => [
-                                        'label' => ['type' => 'string', 'const' => '**Voice Examples (STUDY THESE):**'],
-                                        'examples' => [
-                                            'type' => 'array',
-                                            'minItems' => 3,
-                                            'maxItems' => 3,
-                                            'items' => [
-                                                'type' => 'object',
-                                                'properties' => [
-                                                    'topic' => ['type' => 'string'],
-                                                    'quote' => ['type' => 'string', 'minLength' => 20]
-                                                ],
-                                                'required' => ['topic', 'quote']
-                                            ]
-                                        ]
-                                    ],
-                                    'required' => ['label', 'examples']
-                                ],
-                                'patterns' => [
-                                    'type' => 'object',
-                                    'properties' => [
-                                        'label' => ['type' => 'string', 'const' => '**Patterns (ALWAYS Follow):**'],
-                                        'items' => [
-                                            'type' => 'array',
-                                            'minItems' => 5,
-                                            'items' => ['type' => 'string']
-                                        ]
-                                    ],
-                                    'required' => ['label', 'items']
-                                ],
-                                'anti_patterns' => [
-                                    'type' => 'object',
-                                    'properties' => [
-                                        'label' => ['type' => 'string', 'const' => '**Anti-Patterns (NEVER Do):**'],
-                                        'items' => [
-                                            'type' => 'array',
-                                            'minItems' => 5,
-                                            'items' => ['type' => 'string']
-                                        ]
-                                    ],
-                                    'required' => ['label', 'items']
-                                ]
-                            ],
-                            'required' => ['section_title', 'voice_dna', 'voice_examples', 'patterns', 'anti_patterns']
-                        ],
-                        // Additional sections would follow similar pattern...
-                    ],
-                    'required' => ['voice_anchor']
-                ]
-            ]
-        ];
-    }
+    $template = $this->loadPKTemplate();
+    $mustache = new \Mustache_Engine(['escape' => fn($v) => $v]);
     
-    public static function formatJsonToMarkdown(array $jsonContent): string
-    {
-        $markdown = [];
-        
-        // Voice Anchor section
-        if (isset($jsonContent['voice_anchor'])) {
-            $va = $jsonContent['voice_anchor'];
-            $markdown[] = $va['section_title'];
-            $markdown[] = '';
-            $markdown[] = $va['voice_dna']['label'] . ' ' . $va['voice_dna']['content'];
-            $markdown[] = '';
-            $markdown[] = $va['voice_examples']['label'];
-            $markdown[] = '';
+    for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+        try {
+            // Step 1: Build prompt with template and strict instructions
+            $prompt = $this->buildTemplateCompliancePrompt(
+                $template, 
+                $advisorData, 
+                $attempt
+            );
             
-            foreach ($va['voice_examples']['examples'] as $example) {
-                $markdown[] = "*On {$example['topic']}:* \"{$example['quote']}\"";
-                $markdown[] = '';
+            // Step 2: Generate with structured output (JSON schema)
+            $schema = $this->buildVariableSchema($template);
+            
+            $response = $this->llmService->generateText($prompt, [
+                'model' => config('ai-models.purposes.pk_generation'),
+                'temperature' => 0.7,
+                'response_format' => $schema,  // Schema already includes the full structure
+                'system_message' => 'You must return valid JSON with template variables only'
+            ]);
+            
+            // Step 3: Parse JSON
+            $variables = json_decode($response, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                throw new \Exception('Invalid JSON: ' . json_last_error_msg());
             }
             
-            $markdown[] = $va['patterns']['label'];
-            foreach ($va['patterns']['items'] as $pattern) {
-                $markdown[] = "- {$pattern}";
-            }
-            $markdown[] = '';
+            // Step 4: Render with Mustache
+            $rendered = $mustache->render($template, $variables);
             
-            $markdown[] = $va['anti_patterns']['label'];
-            foreach ($va['anti_patterns']['items'] as $antiPattern) {
-                $markdown[] = "- {$antiPattern}";
+            // Step 5: Validate compliance
+            $validator = new TemplateComplianceValidator();
+            $result = $validator->validate($rendered);
+            
+            if ($result['score'] >= 90) {
+                return [
+                    'content' => $rendered,
+                    'compliance_score' => $result['score'],
+                    'attempt' => $attempt
+                ];
+            }
+            
+            // Log issues for debugging
+            Log::warning('Template compliance failed', [
+                'attempt' => $attempt,
+                'score' => $result['score'],
+                'issues' => $result['issues']
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('PK generation attempt failed', [
+                'attempt' => $attempt,
+                'error' => $e->getMessage()
+            ]);
+            
+            if ($attempt === $maxAttempts) {
+                throw new TemplateComplianceException(
+                    "Failed to generate compliant PK after {$maxAttempts} attempts",
+                    ['last_error' => $e->getMessage()]
+                );
             }
         }
-        
-        return implode("\n", $markdown);
     }
+    
+    throw new TemplateComplianceException('Max attempts reached without compliance');
 }
 ```
 
-### Success Criteria:
-
-#### Automated Verification:
-- [ ] Schema validation test: `php artisan test --filter PKStructureSchemaTest`
-- [ ] JSON to Markdown conversion test: `php artisan test --filter SchemaFormatterTest`
-
-#### Manual Verification:
-- [ ] Schema enforces exact header text with emphasis
-- [ ] Schema requires minimum content lengths
-- [ ] Formatted output preserves all emphasis markers
-
----
-
-## Phase 3: Update PK Generation to Use Templates Properly
-
-### Overview
-Fix the PK generation to actually use the template content and structured output when available.
-
-### Changes Required:
-
-#### 1. Fix buildEnhancedGenerationPrompt to Use Template
+#### 2. Build JSON Schema for Variables
 **File**: `app/Services/AdvisorGenerationService.php`
-**Changes**: Use the template parameter that's currently being ignored
+**Changes**: Create schema to enforce structured output
 
 ```php
-protected function buildEnhancedGenerationPrompt(string $type, string $template, array $advisorData, array $voicePatterns): string
+private function buildVariableSchema(string $template): array
 {
-    $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown Advisor';
+    // Extract all {{variables}} from template
+    preg_match_all('/\{\{([^}]+)\}\}/', $template, $matches);
+    $variables = array_unique($matches[1]);
     
-    // Add known positions constraint
-    $knownPositions = $this->getKnownAdvisorPositions($advisorData['slug'] ?? 'default');
+    $properties = [];
+    $required = [];
     
-    // NEW: Actually use the template!
-    return <<<PROMPT
-Generate {$type} content for {$advisorName} following this EXACT template structure.
-
-CRITICAL: You MUST preserve ALL formatting, including:
-- Bold text marked with ** **
-- CAPITAL LETTERS for emphasis
-- Parenthetical instructions like (CRITICAL - STUDY THIS)
-- Exact section headers as shown
-
-ACCURACY CONSTRAINTS:
-{$knownPositions}
-
-TEMPLATE TO FOLLOW:
-{$template}
-
-Fill in all {{placeholders}} with appropriate content while maintaining the exact structure and emphasis markers shown above.
-PROMPT;
+    foreach ($variables as $variable) {
+        $required[] = $variable;
+        
+        // Define specific requirements for known variables
+        switch ($variable) {
+            case 'voice_dna':
+                $properties[$variable] = [
+                    'type' => 'string',
+                    'minLength' => 50,
+                    'maxLength' => 150,
+                    'description' => 'One-line essence of the advisor'
+                ];
+                break;
+                
+            case 'patterns_list':
+            case 'anti_patterns_list':
+                $properties[$variable] = [
+                    'type' => 'string',
+                    'minLength' => 100,
+                    'description' => '5-6 bullet points starting with "- "'
+                ];
+                break;
+                
+            case 'voice_example_1':
+            case 'voice_example_2':
+            case 'voice_example_3':
+                $properties[$variable] = [
+                    'type' => 'string',
+                    'minLength' => 50,
+                    'description' => 'First-person quote with specific examples'
+                ];
+                break;
+                
+            case 'analytical_tensions':
+                $properties[$variable] = [
+                    'type' => 'string',
+                    'minLength' => 200,
+                    'description' => 'Paradoxes with evidence and uncomfortable truths'
+                ];
+                break;
+                
+            default:
+                $properties[$variable] = [
+                    'type' => 'string',
+                    'minLength' => 10,
+                    'description' => 'Content for ' . $variable
+                ];
+        }
+    }
+    
+    return [
+        'type' => 'json_schema',
+        'json_schema' => [
+            'name' => 'pk_template_variables',
+            'strict' => true,  // CRITICAL: Enforces exact schema compliance
+            'schema' => [
+                'type' => 'object',
+                'properties' => $properties,
+                'required' => $required,
+                'additionalProperties' => false  // CRITICAL: Prevents adding ANY extra fields
+            ]
+        ]
+    ];
 }
 ```
 
-#### 2. Add Structured Output Support to generatePK
+#### 3. Build Prompt with Escalating Strictness
 **File**: `app/Services/AdvisorGenerationService.php`
-**Changes**: Use structured output when model supports it
+**Changes**: Stronger instructions on retry
 
 ```php
-// Around line 423, before calling generateText
-$modelCapabilities = config("ai-models.capabilities.{$model}");
-$useStructuredOutput = $modelCapabilities['json_mode'] ?? false;
-
-if ($useStructuredOutput) {
-    // Use structured output for guaranteed format compliance
-    $generatedContent = $this->llmService->generateText($prompt, [
-        'model' => $model,
-        'temperature' => $temperature,
-        'max_tokens' => config('ai-models.settings.pk_generation.max_tokens'),
-        'system_message' => 'Generate structured advisor knowledge following the exact schema provided.',
-        'response_format' => \App\Services\Schema\PKStructureSchema::getSchema()
-    ]);
+private function buildTemplateCompliancePrompt(
+    string $template, 
+    array $advisorData, 
+    int $attempt
+): string {
+    $advisorName = $advisorData['full_name'] ?? $advisorData['name'];
     
-    // Convert JSON response to markdown
-    $jsonContent = json_decode($generatedContent, true);
-    if ($jsonContent) {
-        $generatedContent = \App\Services\Schema\PKStructureSchema::formatJsonToMarkdown($jsonContent);
+    // Base instructions
+    $instructions = "Fill in ONLY the {{variables}} in this template for {$advisorName}.";
+    
+    // Escalate strictness with each attempt
+    if ($attempt === 1) {
+        $instructions .= "\n\nRULES:
+1. Replace {{variable}} markers with appropriate content
+2. Return as JSON: {\"variable_name\": \"value\"}
+3. Do NOT modify any other text
+4. Use first-person voice for examples";
+    } elseif ($attempt === 2) {
+        $instructions .= "\n\nCRITICAL - YOU FAILED LAST TIME:
+1. You MUST ONLY replace {{variables}}
+2. You MUST return ONLY JSON
+3. You MUST NOT change ANY formatting
+4. You MUST preserve ALL emphasis markers
+5. FAILURE TO COMPLY WILL CAUSE REJECTION";
+    } else {
+        $instructions .= "\n\n⚠️ FINAL ATTEMPT - STRICT COMPLIANCE REQUIRED ⚠️
+YOU HAVE FAILED TWICE. THIS IS YOUR LAST CHANCE.
+
+MANDATORY REQUIREMENTS:
+- ONLY replace text between {{ and }}
+- Return PURE JSON: {\"variable\": \"value\"}
+- DO NOT add sections
+- DO NOT remove emphasis
+- DO NOT be creative with structure
+- JUST FILL IN THE VARIABLES
+
+IF YOU FAIL AGAIN, THE GENERATION WILL BE REJECTED.";
     }
-} else {
-    // Fallback to template-based generation
-    $generatedContent = $this->llmService->generateText($prompt, [
-        'model' => $model,
-        'temperature' => $temperature,
-        'max_tokens' => config('ai-models.settings.pk_generation.max_tokens'),
-        'system_message' => 'You are a brutally honest business advisor. Preserve ALL formatting and emphasis from the template.'
-    ]);
+    
+    // Extract variable list for clarity
+    preg_match_all('/\{\{([^}]+)\}\}/', $template, $matches);
+    $variables = array_unique($matches[1]);
+    
+    $instructions .= "\n\nVARIABLES TO FILL:\n" . implode("\n", array_map(
+        fn($v) => "- {$v}: " . $this->getVariableDescription($v),
+        $variables
+    ));
+    
+    $instructions .= "\n\nTEMPLATE:\n{$template}";
+    
+    $instructions .= "\n\nADVISOR CONTEXT:\n" . json_encode($advisorData, JSON_PRETTY_PRINT);
+    
+    return $instructions;
 }
 ```
-
-### Success Criteria:
-
-#### Automated Verification:
-- [ ] PK generation test with structured output: `php artisan test --filter PKGenerationStructuredTest`
-- [ ] PK generation test with template fallback: `php artisan test --filter PKGenerationTemplateTest`
-- [ ] Emphasis marker preservation test: `php artisan test --filter EmphasisPreservationTest`
-- [ ] Quality validation passes: `php artisan test --filter PKQualityTest`
-
-#### Manual Verification:
-- [ ] Generated PKs contain "Voice Anchor (CRITICAL - STUDY THIS)" header
-- [ ] Bold markers (**) are preserved in output
-- [ ] CAPS emphasis words remain capitalized
-- [ ] Template structure is followed exactly
-- [ ] Content quality remains high
 
 ---
 
-## Phase 4: Post-Generation Validation Hook
+## Phase 3: Simple Validation
 
 ### Overview
-Add a post-generation validation hook that automatically checks if the generated content adheres to the template structure and emphasis markers.
+Basic validation to check if the template structure is preserved.
 
 ### Changes Required:
 
-#### 1. Create Template Compliance Validator
-**File**: `app/Services/Validation/TemplateComplianceValidator.php` (new file)
-**Changes**: Create dedicated validator for template structure compliance
+#### 1. Create Simple Validator
+**File**: `app/Services/Validation/TemplateComplianceValidator.php`
+**Changes**: Check for critical markers
 
 ```php
 <?php
 
 namespace App\Services\Validation;
 
-use Illuminate\Support\Facades\Log;
-
 class TemplateComplianceValidator
 {
-    private array $requiredMarkers = [
-        'voice_anchor_title' => '## **Voice Anchor (CRITICAL - STUDY THIS)**',
-        'voice_dna_label' => '**Voice DNA:**',
-        'voice_examples_label' => '**Voice Examples (STUDY THESE):**',
-        'patterns_label' => '**Patterns (ALWAYS Follow):**',
-        'anti_patterns_label' => '**Anti-Patterns (NEVER Do):**',
-        'tension_protocol_title' => '## **Useful Tension Protocol**',
-        'challenge_threshold_label' => '**Challenge Threshold:**',
+    private array $criticalMarkers = [
+        '## **Voice Anchor (CRITICAL - STUDY THIS)**',
+        '**Voice DNA:**',
+        '**Voice Examples (STUDY THESE):**',
+        '**Patterns (ALWAYS Follow):**',
+        '**Anti-Patterns (NEVER Do):**',
+        '## **Useful Tension Protocol**',
+        '## **Battle-Tested Case Studies**',
+        '## **Analytical Tensions**'
     ];
     
-    /**
-     * Validate that generated content follows template structure
-     */
-    public function validate(string $content, string $templateName = 'meta_pk_template_v1'): array
+    public function validate(string $content): array
     {
-        $issues = [];
-        $warnings = [];
         $score = 100;
+        $issues = [];
         
-        // Check each required marker
-        foreach ($this->requiredMarkers as $key => $marker) {
+        // Check critical markers
+        foreach ($this->criticalMarkers as $marker) {
             if (!str_contains($content, $marker)) {
-                $issues[] = "Missing required marker: {$marker}";
+                $issues[] = "Missing: {$marker}";
                 $score -= 10;
-                
-                // Check for common mistakes
-                $plainVersion = str_replace(['**', '(', ')'], '', $marker);
-                if (str_contains($content, $plainVersion)) {
-                    $warnings[] = "Found plain version without emphasis: {$plainVersion}";
-                }
             }
         }
         
-        // Check for voice examples structure
-        if (!preg_match('/\*On .+:\* ".+"/', $content)) {
-            $issues[] = 'Missing proper voice example format (*On topic:* "quote")';
-            $score -= 5;
+        // Check for unreplaced variables
+        if (preg_match('/\{\{[^}]+\}\}/', $content)) {
+            $issues[] = "Unreplaced mustache variables found";
+            $score -= 20;
         }
         
-        // Check for minimum content in critical sections
-        if (str_contains($content, '**Voice DNA:**')) {
-            $voiceDnaMatch = preg_match('/\*\*Voice DNA:\*\*\s*(.+)/', $content, $matches);
-            if ($voiceDnaMatch && strlen(trim($matches[1])) < 50) {
-                $warnings[] = 'Voice DNA content too short (< 50 characters)';
-                $score -= 5;
-            }
-        }
-        
-        // Log validation results
-        if (!empty($issues)) {
-            Log::warning('Template compliance validation failed', [
-                'template' => $templateName,
-                'issues' => $issues,
-                'warnings' => $warnings,
-                'score' => $score
-            ]);
+        // Check for minimum content
+        if (strlen($content) < 2000) {
+            $issues[] = "Content too short";
+            $score -= 10;
         }
         
         return [
-            'valid' => empty($issues),
+            'valid' => $score >= 90,
             'score' => max(0, $score),
-            'issues' => $issues,
-            'warnings' => $warnings,
-            'required_markers_found' => $this->countFoundMarkers($content),
-            'required_markers_total' => count($this->requiredMarkers)
-        ];
-    }
-    
-    private function countFoundMarkers(string $content): int
-    {
-        $found = 0;
-        foreach ($this->requiredMarkers as $marker) {
-            if (str_contains($content, $marker)) {
-                $found++;
-            }
-        }
-        return $found;
-    }
-    
-    /**
-     * Auto-fix common issues (optional enhancement)
-     */
-    public function attemptAutoFix(string $content): array
-    {
-        $fixed = $content;
-        $fixes = [];
-        
-        // Fix missing emphasis on Voice Anchor
-        if (str_contains($fixed, '## Voice Anchor') && !str_contains($fixed, '## **Voice Anchor')) {
-            $fixed = str_replace('## Voice Anchor', '## **Voice Anchor (CRITICAL - STUDY THIS)**', $fixed);
-            $fixes[] = 'Added emphasis to Voice Anchor header';
-        }
-        
-        // Fix missing bold on labels
-        $labelsToFix = [
-            'Voice DNA:' => '**Voice DNA:**',
-            'Voice Examples:' => '**Voice Examples (STUDY THESE):**',
-            'Patterns:' => '**Patterns (ALWAYS Follow):**',
-            'Anti-Patterns:' => '**Anti-Patterns (NEVER Do):**',
-        ];
-        
-        foreach ($labelsToFix as $plain => $emphasized) {
-            if (str_contains($fixed, $plain) && !str_contains($fixed, $emphasized)) {
-                $fixed = str_replace($plain, $emphasized, $fixed);
-                $fixes[] = "Added emphasis to {$plain}";
-            }
-        }
-        
-        return [
-            'content' => $fixed,
-            'fixes_applied' => $fixes,
-            'was_modified' => !empty($fixes)
+            'issues' => $issues
         ];
     }
 }
 ```
-
-#### 2. Integrate Validation Hook into Generation
-**File**: `app/Services/AdvisorGenerationService.php`
-**Changes**: Add post-generation validation
-
-```php
-// Add after line 432 (after validateAndCleanContent)
-// Validate template compliance
-$complianceValidator = new \App\Services\Validation\TemplateComplianceValidator();
-$complianceResult = $complianceValidator->validate($cleanedContent, 'meta_pk_template_v1');
-
-if (!$complianceResult['valid']) {
-    Log::warning('Generated PK failed template compliance', [
-        'advisor' => $advisorData['name'] ?? 'unknown',
-        'compliance_score' => $complianceResult['score'],
-        'issues' => $complianceResult['issues']
-    ]);
-    
-    // Optionally attempt auto-fix
-    if (config('advisors.auto_fix_template_compliance', false)) {
-        $autoFix = $complianceValidator->attemptAutoFix($cleanedContent);
-        if ($autoFix['was_modified']) {
-            Log::info('Applied template compliance auto-fixes', [
-                'fixes' => $autoFix['fixes_applied']
-            ]);
-            $cleanedContent = $autoFix['content'];
-            
-            // Re-validate after fixes
-            $complianceResult = $complianceValidator->validate($cleanedContent, 'meta_pk_template_v1');
-        }
-    }
-    
-    // If still invalid after fixes, consider regeneration
-    if (!$complianceResult['valid'] && $attempts < $maxAttempts) {
-        Log::info('Regenerating due to template compliance failure');
-        continue; // Try again with next attempt
-    }
-}
-
-// Store compliance score for quality tracking
-$metadata['template_compliance_score'] = $complianceResult['score'];
-```
-
-### Success Criteria:
-
-#### Automated Verification:
-- [ ] Validation catches missing emphasis markers: `php artisan test --filter TemplateComplianceTest`
-- [ ] Auto-fix correctly adds emphasis: `php artisan test --filter TemplateAutoFixTest`
-- [ ] Validation hook triggers on generation: `php artisan test --filter PostGenerationHookTest`
-
-#### Manual Verification:
-- [ ] Generation logs show compliance validation results
-- [ ] Non-compliant content triggers regeneration (if configured)
-- [ ] Auto-fixes are applied when enabled
 
 ---
 
-## Phase 5: Integration Testing Strategy
+## Phase 4: Exception Handling
 
 ### Overview
-Since we're dealing with actual LLM responses, traditional unit tests cannot validate the real behavior. Instead, we need integration tests that can verify the post-generation hook works correctly and monitoring tools to track compliance in production.
+Clear exceptions for debugging and monitoring.
 
 ### Changes Required:
 
-#### 1. Create Integration Test for Post-Generation Hook
-**File**: `tests/Feature/TemplateComplianceIntegrationTest.php` (new file)
-**Changes**: Test the validation hook with mock content
+#### 1. Create Custom Exception
+**File**: `app/Exceptions/TemplateComplianceException.php`
 
 ```php
 <?php
 
-namespace Tests\Feature;
+namespace App\Exceptions;
 
-use App\Services\Validation\TemplateComplianceValidator;
-use Tests\TestCase;
+use Exception;
 
-class TemplateComplianceIntegrationTest extends TestCase
+class TemplateComplianceException extends Exception
 {
-    /**
-     * Test that compliance validator correctly identifies missing emphasis
-     */
-    public function test_validator_catches_missing_emphasis_markers()
+    protected array $details;
+    
+    public function __construct(string $message, array $details = [])
     {
-        $validator = new TemplateComplianceValidator();
+        parent::__construct($message);
+        $this->details = $details;
         
-        // Test content with plain headers (no emphasis)
-        $badContent = "## Voice Anchor\nSome content here\nVoice DNA: Missing bold";
-        
-        $result = $validator->validate($badContent);
-        
-        $this->assertFalse($result['valid']);
-        $this->assertContains('Missing required marker: ## **Voice Anchor (CRITICAL - STUDY THIS)**', $result['issues']);
-        $this->assertLessThan(100, $result['score']);
+        \Log::error('Template Compliance Failed', [
+            'message' => $message,
+            'details' => $details
+        ]);
     }
     
-    /**
-     * Test that auto-fix correctly adds emphasis
-     */
-    public function test_auto_fix_adds_missing_emphasis()
+    public function getDetails(): array
     {
-        $validator = new TemplateComplianceValidator();
-        
-        $content = "## Voice Anchor\nVoice DNA: Not bold\nPatterns: Missing emphasis";
-        
-        $fixed = $validator->attemptAutoFix($content);
-        
-        $this->assertTrue($fixed['was_modified']);
-        $this->assertStringContainsString('## **Voice Anchor (CRITICAL - STUDY THIS)**', $fixed['content']);
-        $this->assertStringContainsString('**Voice DNA:**', $fixed['content']);
-        $this->assertStringContainsString('**Patterns (ALWAYS Follow):**', $fixed['content']);
-    }
-    
-    /**
-     * Test that valid content passes validation
-     */
-    public function test_properly_formatted_content_passes_validation()
-    {
-        $validator = new TemplateComplianceValidator();
-        
-        $goodContent = <<<CONTENT
-## **Voice Anchor (CRITICAL - STUDY THIS)**
-
-**Voice DNA:** I'm a test advisor with proper emphasis markers.
-
-**Voice Examples (STUDY THESE):**
-
-*On strategy:* "This is a properly formatted example quote."
-
-**Patterns (ALWAYS Follow):**
-- Pattern one
-- Pattern two
-
-**Anti-Patterns (NEVER Do):**
-- Anti-pattern one
-- Anti-pattern two
-CONTENT;
-        
-        $result = $validator->validate($goodContent);
-        
-        $this->assertTrue($result['valid']);
-        $this->assertEquals(100, $result['score']);
-        $this->assertEmpty($result['issues']);
+        return $this->details;
     }
 }
 ```
-
-#### 2. Add Compliance Monitoring Command
-**File**: `app/Console/Commands/MonitorTemplateCompliance.php` (new file)
-**Changes**: Command to check existing PKs for compliance
-
-```php
-<?php
-
-namespace App\Console\Commands;
-
-use App\Models\Advisor;
-use App\Services\Validation\TemplateComplianceValidator;
-use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Storage;
-
-class MonitorTemplateCompliance extends Command
-{
-    protected $signature = 'advisor:check-compliance 
-                            {--advisor= : Check specific advisor}
-                            {--fix : Attempt to auto-fix issues}';
-    
-    protected $description = 'Check existing advisor PKs for template compliance';
-    
-    public function handle(TemplateComplianceValidator $validator)
-    {
-        $advisorSlug = $this->option('advisor');
-        $attemptFix = $this->option('fix');
-        
-        $advisors = $advisorSlug 
-            ? Advisor::where('slug', $advisorSlug)->get()
-            : Advisor::all();
-        
-        $results = [];
-        
-        foreach ($advisors as $advisor) {
-            $pkPath = "advisors/{$advisor->slug}/PK.md";
-            
-            if (!Storage::exists($pkPath)) {
-                $this->warn("PK not found for {$advisor->name}");
-                continue;
-            }
-            
-            $content = Storage::get($pkPath);
-            $compliance = $validator->validate($content);
-            
-            $results[$advisor->slug] = [
-                'name' => $advisor->name,
-                'valid' => $compliance['valid'],
-                'score' => $compliance['score'],
-                'issues' => count($compliance['issues']),
-                'warnings' => count($compliance['warnings'])
-            ];
-            
-            if (!$compliance['valid']) {
-                $this->error("❌ {$advisor->name}: Score {$compliance['score']}%");
-                foreach ($compliance['issues'] as $issue) {
-                    $this->line("   - {$issue}");
-                }
-                
-                if ($attemptFix) {
-                    $fixed = $validator->attemptAutoFix($content);
-                    if ($fixed['was_modified']) {
-                        Storage::put($pkPath, $fixed['content']);
-                        $this->info("   ✅ Applied fixes: " . implode(', ', $fixed['fixes_applied']));
-                    }
-                }
-            } else {
-                $this->info("✅ {$advisor->name}: Score {$compliance['score']}%");
-            }
-        }
-        
-        // Summary
-        $this->newLine();
-        $this->table(
-            ['Advisor', 'Valid', 'Score', 'Issues', 'Warnings'],
-            collect($results)->map(fn($r, $slug) => [
-                $r['name'],
-                $r['valid'] ? '✅' : '❌',
-                $r['score'] . '%',
-                $r['issues'],
-                $r['warnings']
-            ])->values()
-        );
-        
-        $validCount = collect($results)->where('valid', true)->count();
-        $totalCount = count($results);
-        
-        $this->info("Overall compliance: {$validCount}/{$totalCount} advisors valid");
-        
-        return $validCount === $totalCount ? 0 : 1;
-    }
-}
-```
-
-#### 3. Add Compliance Metrics to Generation Jobs
-**File**: `database/migrations/xxxx_add_compliance_score_to_advisor_generation_jobs.php` (new file)
-**Changes**: Track compliance scores in database
-
-```php
-<?php
-
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
-
-return new class extends Migration
-{
-    public function up()
-    {
-        Schema::table('advisor_generation_jobs', function (Blueprint $table) {
-            $table->integer('template_compliance_score')->nullable()->after('quality_report');
-            $table->json('compliance_issues')->nullable()->after('template_compliance_score');
-            $table->boolean('auto_fixed')->default(false)->after('compliance_issues');
-        });
-    }
-    
-    public function down()
-    {
-        Schema::table('advisor_generation_jobs', function (Blueprint $table) {
-            $table->dropColumn(['template_compliance_score', 'compliance_issues', 'auto_fixed']);
-        });
-    }
-};
-```
-
-### Success Criteria:
-
-#### Automated Verification:
-- [ ] Integration tests pass: `php artisan test --filter TemplateComplianceIntegrationTest`
-- [ ] Monitoring command works: `php artisan advisor:check-compliance --advisor=alex-bogusky`
-- [ ] Database migration runs: `php artisan migrate`
-
-#### Manual Verification:
-- [ ] Post-generation hook logs compliance scores
-- [ ] Non-compliant content is detected and logged
-- [ ] Auto-fix works when enabled
-- [ ] Monitoring command provides useful compliance report
 
 ---
 
 ## Testing Strategy
 
 ### Unit Tests:
-- LLMService response_format parameter handling
-- Schema generation and validation
-- JSON to Markdown conversion
-- Template variable substitution
-- Emphasis marker preservation
+- JSON mode validation
+- Mustache rendering
+- Compliance scoring
+- Retry logic
 
 ### Integration Tests:
-- End-to-end PK generation with structured output
-- Fallback to template-based generation
-- OpenRouter API integration with response_format
-- Quality validation of generated content
+- Full PK generation with retries
+- Exception handling
+- Compliance validation
 
-### Manual Testing Steps:
-1. Generate PK for test advisor with structured output enabled
-2. Verify "Voice Anchor (CRITICAL - STUDY THIS)" appears exactly
-3. Check all bold formatting is preserved
-4. Validate CAPS emphasis words remain
-5. Compare against template to ensure structure match
-6. Test with model that doesn't support JSON mode for fallback
-7. Run quality validation to ensure scores reflect compliance
+### Manual Testing:
+1. Generate PK for test advisor
+2. Check logs to see retry attempts
+3. Verify final output has correct structure
+4. Test with different temperature settings
+5. Confirm exceptions thrown after max attempts
 
-## Performance Considerations
+---
 
-- Structured output may increase token usage slightly due to JSON formatting
-- Schema validation adds minimal overhead (< 50ms)
-- Caching compiled schemas could improve performance if needed
-- Consider batching multiple generations to amortize schema overhead
+## Implementation Timeline
 
-## Migration Notes
+### Day 1 (3-4 hours):
+1. Install Mustache (15 min)
+2. Add JSON mode support (1 hour)
+3. Implement basic generatePK with retry (1 hour)
+4. Create validator (30 min)
+5. Test with one advisor (30 min)
+6. Debug and adjust (30 min)
 
-- Existing PKs should be regenerated to include proper emphasis markers
-- No database changes required
-- Backward compatible - old generation still works as fallback
-- Can be rolled out incrementally per advisor
+### Day 2 (2-3 hours):
+1. Add exception handling (30 min)
+2. Improve retry prompt escalation (1 hour)
+3. Add logging and monitoring (30 min)
+4. Test with multiple advisors (30 min)
+5. Document findings (30 min)
 
-## References
+---
 
-- Template structure: `resources/advisor-templates/meta_pk_template_v1.md`
-- Current implementation: `app/Services/AdvisorGenerationService.php:377-450`
-- OpenRouter API docs: https://openrouter.ai/docs/structured-outputs
-- Related research: `docs/lessons-learned.md` (Voice Anchor importance)
+## Key Insights
+
+### Why This Works:
+1. **Realistic Expectations**: Accepts that LLMs aren't perfect
+2. **Progressive Enforcement**: Each retry uses stronger language
+3. **Safety Net**: Mustache ensures structure even if LLM partially complies
+4. **Clear Failure**: After max attempts, fails loudly
+
+### Expected Outcomes:
+- 70-80% success on first attempt
+- 90-95% success after 2 attempts
+- 95-99% success after 3 attempts
+- 1-5% require manual intervention
+
+### The Critical Realization:
+**We were trying to prevent the LLM from being creative. The better approach is to detect when it was creative and try again with stronger instructions.**
+
+---
+
+## Monitoring and Improvement
+
+### Metrics to Track:
+- Success rate by attempt number
+- Most common compliance failures
+- Average compliance score
+- Failure patterns by model
+
+### Continuous Improvement:
+1. Analyze failure patterns
+2. Adjust prompt language based on what works
+3. Consider model-specific prompts
+4. Fine-tune retry escalation
+
+---
+
+## Rollback Plan
+
+If this approach doesn't work:
+1. Revert to original generation
+2. Manually fix emphasis markers post-generation
+3. Consider fine-tuning a model specifically for template compliance
+4. Explore alternative templating engines
+
+---
+
+## Summary
+
+This simplified approach combines three key technologies:
+
+### 1. **Structured Output (JSON Schema)**
+- Forces the LLM to return valid JSON
+- Prevents adding extra fields with `additionalProperties: false`
+- Enforces minimum content lengths
+- Guarantees all required variables are present
+
+### 2. **Mustache Templating**
+- Renders the template with the JSON variables
+- Preserves exact structure and formatting
+- Acts as a safety net if LLM partially complies
+
+### 3. **Retry Logic with Escalation**
+- Accepts that LLMs aren't perfect
+- Uses progressively stricter language
+- Fails loudly after max attempts
+
+The combination ensures:
+- **Structured output** prevents the LLM from returning free-form text
+- **Mustache** guarantees template structure preservation
+- **Retry logic** handles the reality that LLMs sometimes ignore instructions
+
+This is simple, maintainable, and achieves good results without over-engineering.

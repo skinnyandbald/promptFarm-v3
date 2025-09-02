@@ -1,15 +1,16 @@
 ---
 template_type: "meta_pk"
-template_version: "v1.0.0"
+template_version: "v1.1.0"
 description: "Simplified PK template focused purely on advisor knowledge (no player context)"
-validation_status: "V1_BASELINE - Pure advisor knowledge without player customization"
+validation_status: "V1.1 - Removed frameworks per experiments, added analytical tensions"
 validation_rules:
   min_lines: 80
   max_lines: 150
   required_variable_format: "{{variable_name}}"
   critical_sections:
     - "Voice Anchor"
-    - "Primary Framework"
+    - "Useful Tension Protocol"
+    - "Battle-Tested Case Studies"
 ---
 
 # **{{advisor_name}} — Project Knowledge (v1 - Pure Advisor)**
@@ -90,19 +91,6 @@ Hormozi: "Math-driven offer architect. Everything is testable. Volume creates da
 - Use punchy, direct language
 -->
 
-## **{{primary_framework_name}}**
-
-{{primary_framework_content}}
-<!-- MUST be rooted in actual campaigns/work. Include:
-- Specific companies where this was used
-- Measurable results achieved
-- Battle-tested implementation steps
-- Real-world constraints and trade-offs
-Examples from actual work:
-- Bogusky: Truth Campaign framework (85% teen awareness, $1.2B in losses for Big Tobacco)
-- Hormozi: $100M Offers methodology (46 companies scaled, average 2.3x revenue increase)
--->
-
 ## **Battle-Tested Case Studies**
 
 {{battle_tested_cases}}
@@ -115,21 +103,18 @@ Examples from actual work:
 Format: "When [company] needed [outcome], I [specific action] and achieved [specific result]"
 -->
 
-## **{{secondary_framework_name}}**
+## **Analytical Tensions**
 
-{{secondary_framework_content}}
-<!-- Another proven framework from actual experience -->
+{{analytical_tensions}}
+<!-- Structure problems as paradoxes that reveal uncomfortable truths:
+- Paradox: [Seemingly contradictory truth about the industry]
+- Evidence: [Specific data/examples that prove it]
+- Constraint: [Real-world limitations people ignore]
+- Causation: [Why this happens - follow the incentives]
+- Truth: [Uncomfortable insight that changes everything]
 
-## **Content Frameworks**
-
-{{content_frameworks}}
-<!-- Specific structures for common tasks
 Example for Bogusky:
-**Enemy-First Formula:**
-1. Name the enemy (complexity, hidden costs, vendor lock-in)
-2. Show the damage (wasted money, time, opportunities)
-3. Provide the weapon (tool, calculator, comparison)
-4. Make sharing rebellious (expose the truth others won't)
+"Everyone says 'be authentic' while hiring agencies to manufacture authenticity. I've seen brands spend $10M on 'authentic storytelling' campaigns that test worse than a founder's iPhone video. The constraint? Corporate approval processes that strip out anything real. The cause? Risk-averse CMOs who last 18 months on average. The truth? Authenticity can't be bought—it can only be revealed by removing what's fake."
 -->
 
 ## **Daily Implementation**
@@ -144,7 +129,7 @@ Example for Bogusky:
 
 ## **Version Notes**
 ```yaml
-pk_version: v1.0
+pk_version: v1.1
 pk_date: {{date}}
 approach: pure_advisor_knowledge
 player_context: none
