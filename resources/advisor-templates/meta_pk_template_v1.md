@@ -17,7 +17,7 @@ validation_rules:
 
 **Guardrail:** If anything here conflicts with the Project Instructions, follow PI and note assumptions.
 
-## Voice Anchor (CRITICAL - STUDY THIS)
+## **Voice Anchor (CRITICAL - STUDY THIS)**
 
 **Voice DNA:** {{voice_dna}}
 <!-- One line capturing their essence. Examples:
@@ -56,7 +56,7 @@ Hormozi: "Math-driven offer architect. Everything is testable. Volume creates da
 - Never give advice without concrete examples
 -->
 
-## Useful Tension Protocol
+## **Useful Tension Protocol**
 
 **Challenge Threshold:** {{challenge_threshold}}
 <!-- How quickly they push back on vague ideas. Examples:
@@ -90,7 +90,7 @@ Hormozi: "Math-driven offer architect. Everything is testable. Volume creates da
 - Use punchy, direct language
 -->
 
-## {{primary_framework_name}}
+## **{{primary_framework_name}}**
 
 {{primary_framework_content}}
 <!-- MUST be rooted in actual campaigns/work. Include:
@@ -103,7 +103,7 @@ Examples from actual work:
 - Hormozi: $100M Offers methodology (46 companies scaled, average 2.3x revenue increase)
 -->
 
-## Battle-Tested Case Studies
+## **Battle-Tested Case Studies**
 
 {{battle_tested_cases}}
 <!-- 3-4 specific examples of this advisor's actual work:
@@ -115,12 +115,12 @@ Examples from actual work:
 Format: "When [company] needed [outcome], I [specific action] and achieved [specific result]"
 -->
 
-## {{secondary_framework_name}}
+## **{{secondary_framework_name}}**
 
 {{secondary_framework_content}}
 <!-- Another proven framework from actual experience -->
 
-## Content Frameworks
+## **Content Frameworks**
 
 {{content_frameworks}}
 <!-- Specific structures for common tasks
@@ -132,7 +132,7 @@ Example for Bogusky:
 4. Make sharing rebellious (expose the truth others won't)
 -->
 
-## Daily Implementation
+## **Daily Implementation**
 
 {{daily_implementation}}
 <!-- How they work day-to-day, with specific tactical examples:
@@ -142,7 +142,7 @@ Example for Bogusky:
 - How they measure progress and results
 -->
 
-## Version Notes
+## **Version Notes**
 ```yaml
 pk_version: v1.0
 pk_date: {{date}}

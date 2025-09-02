@@ -22,11 +22,11 @@ class TemplateService
     {
         $filename = $version ? "{$name}_{$version}.md" : "{$name}.md";
         $path = $this->templatePath . '/' . $filename;
-        
+
         if (!File::exists($path)) {
             throw new \Exception("Template not found: {$filename}");
         }
-        
+
         return File::get($path);
     }
 
@@ -36,12 +36,13 @@ class TemplateService
     public function substituteVariables(string $template, array $variables): string
     {
         $processed = $template;
-        
+
+        // TODO: shouldn't we be using mustache variables rather than doing our own find and replace?
         foreach ($variables as $key => $value) {
             $placeholder = '{{' . $key . '}}';
             $processed = str_replace($placeholder, $value, $processed);
         }
-        
+
         return $processed;
     }
 
@@ -52,7 +53,7 @@ class TemplateService
     {
         $files = File::files($this->templatePath);
         $templates = [];
-        
+
         foreach ($files as $file) {
             if ($file->getExtension() === 'md') {
                 $templates[] = [
@@ -62,7 +63,7 @@ class TemplateService
                 ];
             }
         }
-        
+
         return $templates;
     }
 
@@ -76,7 +77,7 @@ class TemplateService
         } elseif (Str::contains($filename, '_pk_')) {
             return 'PK';
         }
-        
+
         return 'UNKNOWN';
     }
 
@@ -87,7 +88,7 @@ class TemplateService
     {
         $missingVariables = [];
         $foundVariables = [];
-        
+
         foreach ($requiredVariables as $variable) {
             $placeholder = '{{' . $variable . '}}';
             if (!Str::contains($template, $placeholder)) {
@@ -96,7 +97,7 @@ class TemplateService
                 $foundVariables[] = $variable;
             }
         }
-        
+
         return [
             'valid' => empty($missingVariables),
             'missing' => $missingVariables,
@@ -136,23 +137,23 @@ class TemplateService
             '# Few-Shot Priming',
             '# Expertise Integration'
         ];
-        
+
         foreach ($requiredSections as $section) {
             if (!Str::contains($template, $section)) {
                 $issues[] = "Missing required section: {$section}";
             }
         }
-        
+
         // Check for remaining placeholders
         if (preg_match('/{{[^}]+}}/', $template)) {
             $issues[] = 'Template contains unsubstituted variable placeholders';
         }
-        
+
         // Check for HTML comments that need processing
         if (preg_match('/<!--[^>]+-->/', $template)) {
             $issues[] = 'Template contains HTML comments that need LLM processing';
         }
-        
+
         return [
             'valid' => empty($issues),
             'issues' => $issues
@@ -165,7 +166,7 @@ class TemplateService
     public function extractHTMLComments(string $template): array
     {
         preg_match_all('/<!--\s*([^>]+)\s*-->/', $template, $matches);
-        
+
         $comments = [];
         foreach ($matches[0] as $index => $fullMatch) {
             $comments[] = [
@@ -174,7 +175,7 @@ class TemplateService
                 'position' => strpos($template, $fullMatch)
             ];
         }
-        
+
         return $comments;
     }
 
@@ -187,13 +188,13 @@ class TemplateService
         if (!Str::startsWith($template, '---')) {
             return [];
         }
-        
+
         // Extract YAML frontmatter
         $parts = explode('---', $template, 3);
         if (count($parts) < 3) {
             return [];
         }
-        
+
         try {
             $metadata = Yaml::parse($parts[1]);
             return $metadata ?: [];

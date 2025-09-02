@@ -45,6 +45,7 @@ class GenerateAdvisorJob implements ShouldQueue
 
             $result = $service->generateAdvisor(
                 $advisor,
+                'v1', // Always use v1 templates
                 function (int $progress, string $step) {
                     $this->generationJob->updateProgress($progress, $step);
                 }
