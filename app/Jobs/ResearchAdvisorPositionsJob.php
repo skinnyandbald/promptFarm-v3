@@ -35,14 +35,14 @@ class ResearchAdvisorPositionsJob implements ShouldQueue
     public function handle(LLMService $llmService): void
     {
         // Check if we already have cached positions and shouldn't force refresh
-        $existing = AdvisorPosition::where('advisor_key', $this->advisorKey)->first();
+        $existing = AdvisorPosition::where('advisor_slug', $this->advisorKey)->first();
         
         if ($existing && !$this->forceRefresh) {
-            Log::info('ResearchAdvisorPositionsJob: Positions already cached', [
+            Log::info('ResearchAdvisorPositionsJob: Positions already cached, skipping research', [
                 'advisor' => $this->advisorKey,
                 'cached_at' => $existing->created_at,
             ]);
-            return;
+            return; // Exit early - chained jobs will still run
         }
         
         Log::info('ResearchAdvisorPositionsJob: Starting research', [
@@ -70,7 +70,7 @@ class ResearchAdvisorPositionsJob implements ShouldQueue
             ]);
         } else {
             AdvisorPosition::create([
-                'advisor_key' => $this->advisorKey,
+                'advisor_slug' => $this->advisorKey,
                 'researched_positions' => $positions,
                 'research_model' => config('ai-models.purposes.fact_checking'),
                 'research_temperature' => 0.1,

@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('advisors', function (Blueprint $table) {
             $table->id();
-            $table->string('key')->unique()->index();
+            $table->string('slug')->unique()->index();
             $table->string('name');
             $table->string('full_name');
             $table->text('known_for');

@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class AdvisorPosition extends Model
 {
     protected $fillable = [
-        'advisor_key',
+        'advisor_slug',
         'researched_positions',
         'research_model',
         'research_temperature',

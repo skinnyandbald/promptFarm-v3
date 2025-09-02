@@ -13,7 +13,7 @@ class AdvisorGenerationJob extends Model
     const STATUS_FAILED = 'failed';
 
     protected $fillable = [
-        'advisor_key',
+        'advisor_id',
         'status',
         'progress',
         'current_step',
@@ -38,7 +38,7 @@ class AdvisorGenerationJob extends Model
 
     public function advisor(): BelongsTo
     {
-        return $this->belongsTo(Advisor::class, 'advisor_key', 'key');
+        return $this->belongsTo(Advisor::class);
     }
 
     public function markAsProcessing(): void

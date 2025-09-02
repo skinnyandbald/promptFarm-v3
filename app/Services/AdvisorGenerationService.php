@@ -24,13 +24,42 @@ class AdvisorGenerationService
      * @param  ?callable  $progressCallback  Optional callback for progress updates
      * @param  bool  $exportFiles  Whether to export files to local storage for testing
      */
-    public function generateAdvisor($advisorData, $version = 'v1', ?callable $progressCallback = null, bool $exportFiles = false): array
+    public function generateAdvisor($advisorData, $version = 'v1', ?callable $progressCallback = null, bool $exportFiles = false, ?int $jobId = null): array
     {
         // Handle Advisor model if passed
         if ($advisorData instanceof \App\Models\Advisor) {
             $advisor = $advisorData;
             $advisorData = $advisor->toArray();
             $advisorData['key'] = $advisor->key;
+            $advisorData['slug'] = $advisor->slug;
+        }
+
+        // Check if advisor has researched positions
+        $advisorSlug = $advisorData['slug'] ?? $advisorData['key'] ?? null;
+        if ($advisorSlug) {
+            $hasPositions = \App\Models\AdvisorPosition::where('advisor_slug', $advisorSlug)->exists();
+            
+            if (!$hasPositions) {
+                Log::info('No positions found for advisor, triggering research', [
+                    'advisor_slug' => $advisorSlug,
+                ]);
+                
+                // Research will be handled by job chaining when running via queue
+                // For direct service calls (sync mode), run research immediately
+                if (config('queue.default') === 'sync') {
+                    $researchJob = new \App\Jobs\ResearchAdvisorPositionsJob(
+                        $advisorSlug,
+                        $advisorData,
+                        false
+                    );
+                    $llmService = app(\App\Services\LLMService::class);
+                    $researchJob->handle($llmService);
+                }
+                
+                Log::info('Research completed, proceeding with generation', [
+                    'advisor_slug' => $advisorSlug,
+                ]);
+            }
         }
 
         Log::info('Starting advisor generation', [
@@ -100,6 +129,7 @@ class AdvisorGenerationService
             $metadata = [
                 'name' => $advisorName,
                 'sanitized_name' => $sanitizedName,
+                'job_id' => $jobId,
                 'generated_at' => now()->toIso8601String(),
                 'pi_size' => strlen($piContent),
                 'pk_size' => strlen($pkContent),
@@ -213,6 +243,9 @@ class AdvisorGenerationService
         $notableWork = $advisorData['notable_achievements'] ?? '';
         $methodology = $advisorData['decision_making_approach'] ?? '';
         $keyPhrases = $advisorData['key_phrases_or_terminology'] ?? '';
+        if (is_array($keyPhrases)) {
+            $keyPhrases = implode(', ', $keyPhrases);
+        }
 
         // Build enhancement prompt
         $enhancementPrompt = $this->buildPIEnhancementPrompt(
@@ -535,21 +568,21 @@ PROMPT;
     /**
      * Get dynamic position constraints from researched positions
      */
-    protected function getKnownAdvisorPositions(string $advisorKey): string
+    protected function getKnownAdvisorPositions(string $advisorSlug): string
     {
         // Get positions directly from database
-        $cached = \App\Models\AdvisorPosition::where('advisor_key', $advisorKey)->first();
+        $cached = \App\Models\AdvisorPosition::where('advisor_slug', $advisorSlug)->first();
 
         if (!$cached) {
             Log::warning('FACT-CHECK: No researched positions found in database', [
-                'advisor' => $advisorKey,
-                'suggestion' => 'Run: php artisan advisor:research ' . $advisorKey,
+                'advisor' => $advisorSlug,
+                'suggestion' => 'Run: php artisan advisor:research ' . $advisorSlug,
             ]);
             return 'Maintain internal consistency. Never contradict your own stated beliefs.';
         }
 
         Log::info('FACT-CHECK: Using cached positions from database', [
-            'advisor' => $advisorKey,
+            'advisor' => $advisorSlug,
             'cached_at' => $cached->created_at,
         ]);
 
@@ -585,8 +618,8 @@ CONSTRAINTS;
         $keyPhrases = $advisorData['key_phrases_or_terminology'] ?? '';
 
         // Load advisor-specific tensions
-        $advisorKey = $advisorData['key'] ?? 'default';
-        $tensionsConfig = config("advisor-tensions.{$advisorKey}", []);
+        $advisorSlug = $advisorData['slug'] ?? $advisorData['key'] ?? 'default';
+        $tensionsConfig = config("advisor-tensions.{$advisorSlug}", []);
         $tensions = $tensionsConfig['tensions'] ?? [
             'Challenge conventional wisdom in your field',
             'Question accepted best practices',
@@ -601,7 +634,7 @@ CONSTRAINTS;
         }
 
         // Add known positions to prevent contradictions
-        $knownPositions = $this->getKnownAdvisorPositions($advisorKey);
+        $knownPositions = $this->getKnownAdvisorPositions($advisorSlug);
 
         // Log the constraints we're sending
         Log::info('PK GENERATION: Constraints being sent to Grok', [
@@ -1009,12 +1042,18 @@ YAML;
      */
     private function exportToFiles($advisorData, $piContent, $pkContent, $metadata): array
     {
+        // Use the slug for directory naming (e.g., 'alex-bogusky', 'alex-hormozi')
+        $advisorSlug = $advisorData['slug'] ?? $advisorData['key'] ?? Str::slug($advisorData['name'] ?? 'unknown');
         $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown';
         $pascalName = str_replace(' ', '', ucwords(str_replace('-', ' ', $advisorName)));
         $timestamp = now()->format('Y-m-d');
-        $jobId = $metadata['job_id'] ?? 'unknown';
         
-        $basePath = "advisors/{$advisorName}/{$timestamp}-job-{$jobId}";
+        // Use provided job ID or fallback to uniqid for synchronous runs
+        $jobId = $metadata['job_id'] ?? $metadata['generation_id'] ?? uniqid();
+        
+        // Don't prefix with 'advisors/' - the disk already points there
+        // Use advisor slug as the directory name (e.g., 'alex-bogusky')
+        $basePath = "{$advisorSlug}/{$timestamp}-job-{$jobId}";
         Storage::disk('advisors')->makeDirectory($basePath);
         
         // Use correct naming: AlexBogusky_PI.md, AlexBogusky_PK.md
@@ -1040,22 +1079,4 @@ YAML;
         ];
     }
 
-    /**
-     * Get the file paths where exported files would be saved
-     */
-    private function getExportedFilePaths($advisorData): array
-    {
-        $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown';
-        $pascalName = str_replace(' ', '', ucwords(str_replace('-', ' ', $advisorName)));
-        $timestamp = now()->format('Y-m-d');
-        
-        $basePath = "advisors/{$advisorName}/{$timestamp}-job-current";
-        
-        return [
-            'pi' => "{$basePath}/{$pascalName}_PI.md",
-            'pk' => "{$basePath}/{$pascalName}_PK.md",
-            'metadata' => "{$basePath}/metadata.json",
-            'base_path' => $basePath,
-        ];
-    }
 }

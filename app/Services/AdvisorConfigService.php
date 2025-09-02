@@ -10,17 +10,17 @@ class AdvisorConfigService
 {
     public function allAdvisors(): array
     {
-        return Advisor::all()->keyBy('key')->map(function ($advisor) {
+        return Advisor::all()->keyBy('slug')->map(function ($advisor) {
             return $advisor->getConfigArray();
         })->toArray();
     }
 
-    public function getAdvisorConfig(string $key): array
+    public function getAdvisorConfig(string $slug): array
     {
-        $advisor = Advisor::where('key', $key)->first();
+        $advisor = Advisor::where('slug', $slug)->first();
 
         if (!$advisor) {
-            throw new InvalidArgumentException("Advisor not found in database for key: {$key}");
+            throw new InvalidArgumentException("Advisor not found in database for slug: {$slug}");
         }
 
         return $advisor->getConfigArray();

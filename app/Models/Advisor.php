@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Advisor extends Model
 {
@@ -12,7 +13,6 @@ class Advisor extends Model
      * @var array<string>
      */
     protected $fillable = [
-        'key',
         'name',
         'slug',
         'full_name',
@@ -41,6 +41,26 @@ class Advisor extends Model
     ];
 
     /**
+     * Boot the model and add automatic slug generation.
+     */
+    protected static function boot()
+    {
+        parent::boot();
+        
+        static::creating(function ($advisor) {
+            if (empty($advisor->slug) && !empty($advisor->name)) {
+                $advisor->slug = Str::slug($advisor->name);
+            }
+        });
+
+        static::updating(function ($advisor) {
+            if ($advisor->isDirty('name') && !$advisor->isDirty('slug')) {
+                $advisor->slug = Str::slug($advisor->name);
+            }
+        });
+    }
+
+    /**
      * Scope to find advisor by key.
      */
     public function scopeByKey($query, string $key)
@@ -49,12 +69,20 @@ class Advisor extends Model
     }
 
     /**
+     * Scope to find advisor by slug.
+     */
+    public function scopeBySlug($query, string $slug)
+    {
+        return $query->where('slug', $slug);
+    }
+
+    /**
      * Get the advisor configuration as an array.
      */
     public function getConfigArray(): array
     {
         return [
-            'key' => $this->key,
+            'slug' => $this->slug,
             'name' => $this->name,
             'full_name' => $this->full_name,
             'known_for' => $this->known_for,

@@ -40,6 +40,15 @@ class TemplateService
         // TODO: shouldn't we be using mustache variables rather than doing our own find and replace?
         foreach ($variables as $key => $value) {
             $placeholder = '{{' . $key . '}}';
+            
+            // Convert arrays to strings for template substitution
+            if (is_array($value)) {
+                $value = implode(', ', $value);
+            }
+            
+            // Ensure value is a string
+            $value = (string) $value;
+            
             $processed = str_replace($placeholder, $value, $processed);
         }
 

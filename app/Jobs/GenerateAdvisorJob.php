@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Jobs\ResearchAdvisorPositionsJob;
 use App\Models\AdvisorGenerationJob;
 use App\Services\AdvisorGenerationService;
 use Illuminate\Bus\Queueable;
@@ -24,7 +25,8 @@ class GenerateAdvisorJob implements ShouldQueue
      * Create a new job instance.
      */
     public function __construct(
-        public AdvisorGenerationJob $generationJob
+        public AdvisorGenerationJob $generationJob,
+        public bool $exportFiles = false
     ) {
         $this->onQueue('advisor-generation');
     }
@@ -43,13 +45,15 @@ class GenerateAdvisorJob implements ShouldQueue
                 throw new \Exception("Advisor with key '{$this->generationJob->advisor_key}' not found");
             }
 
+
             $result = $service->generateAdvisor(
                 $advisor,
                 'v1', // Always use v1 templates
                 function (int $progress, string $step) {
                     $this->generationJob->updateProgress($progress, $step);
                 },
-                false // Never export files for queued jobs
+                $this->exportFiles, // Export files if requested
+                $this->generationJob->id // Pass the incremental job ID
             );
 
             $this->generationJob->update([

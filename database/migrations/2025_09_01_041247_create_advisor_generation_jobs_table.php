@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('advisor_generation_jobs', function (Blueprint $table) {
             $table->id();
-            $table->string('advisor_key');
+            $table->foreignId('advisor_id')->constrained('advisors')->onDelete('cascade');
             $table->enum('status', ['pending', 'processing', 'completed', 'failed'])
                 ->default('pending');
             $table->integer('progress')->default(0);

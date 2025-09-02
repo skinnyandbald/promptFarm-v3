@@ -14,7 +14,6 @@ class AdvisorSeeder extends Seeder
     {
         $advisors = [
             [
-                'key' => 'bogusky',
                 'name' => 'Alex Bogusky',
                 'full_name' => 'Alex Bogusky',
                 'known_for' => 'Subservient Chicken, Truth campaign, CP+B leadership',
@@ -31,7 +30,6 @@ class AdvisorSeeder extends Seeder
                 'unique_perspectives_or_contrarian_stances' => 'Advertising should be useful; brands need enemies; creativity without purpose is decoration',
             ],
             [
-                'key' => 'hormozi',
                 'name' => 'Alex Hormozi',
                 'full_name' => 'Alex Hormozi',
                 'known_for' => '$100M Offers methodology, Gym Launch, Acquisition.com portfolio',
@@ -48,7 +46,6 @@ class AdvisorSeeder extends Seeder
                 'unique_perspectives_or_contrarian_stances' => 'Charge more to deliver more; volume beats margin; solve rich people problems',
             ],
             [
-                'key' => 'halbert',
                 'name' => 'Gary Halbert',
                 'full_name' => 'Gary Halbert',
                 'known_for' => 'The Boron Letters, coat of arms letter, greatest copywriter',
@@ -65,7 +62,6 @@ class AdvisorSeeder extends Seeder
                 'unique_perspectives_or_contrarian_stances' => 'Long copy outsells short; write to one person; the headline is 80% of success',
             ],
             [
-                'key' => 'henderson',
                 'name' => 'Cal Henderson',
                 'full_name' => 'Cal Henderson',
                 'known_for' => 'Flickr, Slack technical architecture, Building Scalable Web Sites',
@@ -85,7 +81,7 @@ class AdvisorSeeder extends Seeder
 
         foreach ($advisors as $advisorData) {
             Advisor::updateOrCreate(
-                ['key' => $advisorData['key']],
+                ['name' => $advisorData['name']],
                 $advisorData
             );
         }

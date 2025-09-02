@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Jobs\GenerateAdvisorJob;
+use App\Jobs\ResearchAdvisorPositionsJob;
 use App\Models\Advisor;
 use App\Models\AdvisorGenerationJob;
 use App\Services\AdvisorConfigService;
@@ -15,15 +16,14 @@ use InvalidArgumentException;
 class GenerateAdvisor extends Command
 {
     protected $signature = 'advisor:generate 
-        {name? : The advisor key from config} 
+        {name? : The advisor slug from database} 
         {--all : Generate all advisors} 
         {--template-version=v1 : Template version} 
         {--show-validation : Display detailed validation feedback} 
-        {--background : Run generation in background queue} 
         {--poll : Poll background job status} 
         {--export-files : Export generated files to local storage for testing}';
 
-    protected $description = 'Generate an advisor by key from database (supports background processing with Redis/Horizon)';
+    protected $description = 'Generate an advisor by slug from database (sync/async determined by queue driver)';
 
     public function __construct(
         protected AdvisorGenerationService $generationService,
@@ -37,7 +37,6 @@ class GenerateAdvisor extends Command
     {
         $all = $this->option('all');
         $version = $this->option('template-version') ?? 'v1';
-        $background = $this->option('background');
         $poll = $this->option('poll');
 
         // Get list of advisors to generate
@@ -45,7 +44,7 @@ class GenerateAdvisor extends Command
 
         if ($all) {
             // Generate all advisors from database
-            $advisorsToGenerate = Advisor::pluck('key')->unique()->toArray();
+            $advisorsToGenerate = Advisor::pluck('slug')->unique()->toArray();
 
             if (empty($advisorsToGenerate)) {
                 $this->error('No advisors found in database!');
@@ -82,17 +81,9 @@ class GenerateAdvisor extends Command
                 $this->info("Processing: {$advisorKey}");
             }
 
-            // If running in background mode
-            if ($background) {
-                $this->runInBackground($advisorKey);
-                $results[$advisorKey] = 'queued';
-
-                continue;
-            }
-
-            // Run generation synchronously
-            $result = $this->generateAdvisor($advisorKey, $version);
-            $results[$advisorKey] = $result ? 'success' : 'failed';
+            // Always use job dispatch (sync/async determined by queue driver)
+            $result = $this->dispatchAdvisorGeneration($advisorKey, $version);
+            $results[$advisorKey] = $result;
         }
 
         // Show summary for --all
@@ -103,94 +94,45 @@ class GenerateAdvisor extends Command
         return 0;
     }
 
-    protected function generateAdvisor($name, $version)
+    protected function dispatchAdvisorGeneration(string $name, string $version): string
     {
-
-        // Synchronous generation (existing code)
         try {
-            // Load advisor config
-            $advisorData = $this->configService->getAdvisorConfig($name);
-            $advisorData['key'] = $name; // Add key for generation service
+            $advisor = Advisor::where('slug', $name)->first();
 
-            $this->line("✓ Loaded configuration for {$advisorData['full_name']}");
+            if (!$advisor) {
+                $this->error("❌ Advisor not found: {$name}");
+                return 'failed';
+            }
 
-            // Progress bar for generation steps
-            $progressBar = $this->output->createProgressBar(4);
-            $progressBar->setFormat(' %current%/%max% [%bar%] %percent:3s%% - %message%');
+            // Create job record for tracking
+            $generationJob = AdvisorGenerationJob::create([
+                'advisor_id' => $advisor->id,
+                'status' => AdvisorGenerationJob::STATUS_PENDING,
+                'progress' => 0,
+                'current_step' => 'Queued for generation',
+            ]);
 
-            $progressBar->setMessage('Generating PI (Instructions)...');
-            $progressBar->start();
-
-            // Generate advisor
-            // TODO: this process is lies.
-            // Based on the actual logic of how this works, by the time it gets to generatedVisor, wouldn't it already have generated the knowledge, since that all happens within the generatedVisor method?
-            // How can we do this so that the progress is accurate? Do we need to embed the progress part within GeneratedAdvisor? That doesn't make sense. Go through events: what's the best practice here?
-            $result = $this->generationService->generateAdvisor(
-                $advisorData,
-                $version,
-                null,
-                $this->option('export-files')
+            // Simple dispatch - let Laravel handle sync vs async
+            ResearchAdvisorPositionsJob::withChain([
+                new GenerateAdvisorJob($generationJob, $this->option('export-files'))
+            ])->dispatch(
+                $advisor->slug,
+                $advisor->toArray(),
+                false // don't force refresh
             );
 
-            $progressBar->advance();
-            $progressBar->setMessage('Generating PK (Knowledge)...');
-            $progressBar->advance();
-
-            $progressBar->setMessage('Validating quality...');
-            $progressBar->advance();
-
-            $progressBar->setMessage('Saving files...');
-            $progressBar->advance();
-            $progressBar->finish();
-            $this->newLine(2);
-
-            if ($result['success']) {
-                $this->info('✅ Advisor generated successfully!');
-                $this->newLine();
-
-                // Display quality scores
-                $quality = $result['quality'];
-                $this->displayQualityScores($quality);
-
-                // Show validation details if requested
-                if ($this->option('show-validation')) {
-                    $this->displayValidationDetails($quality);
-                }
-
-                // Display file paths if files were exported
-                if ($result['exported_files']) {
-                    $this->table(['Component', 'File Path', 'Quality'], [
-                        ['PI (Instructions)', $result['exported_files']['pi'], $quality['pi']['percentage'].'%'],
-                        ['PK (Knowledge)', $result['exported_files']['pk'], $quality['pk']['percentage'].'%'],
-                        ['Metadata', $result['exported_files']['metadata'], 'N/A'],
-                    ]);
-
-                    $this->info("📁 Files exported to: storage/app/advisors/{$result['exported_files']['base_path']}");
-                } else {
-                    $this->info('📄 Content generated and stored in database (use --export-files flag to save local files)');
-                }
-
-                return Command::SUCCESS;
-            }
-
-        } catch (InvalidArgumentException $e) {
-            $this->error("❌ Advisor not found: {$name}");
-            $this->newLine();
-            $this->info('Available advisors:');
-            $advisors = $this->configService->allAdvisors();
-            foreach (array_keys($advisors) as $key) {
-                $config = $advisors[$key];
-                $this->line("  - {$key} ({$config['full_name']})");
-            }
-
-            return Command::FAILURE;
+            // Always return the same way - jobs handle the work
+            $this->info('✅ Advisor generation dispatched successfully!');
+            $this->line("📋 Job ID: {$generationJob->id}");
+            
+            return 'success';
 
         } catch (Exception $e) {
             $this->error('❌ Generation failed: '.$e->getMessage());
-
-            return Command::FAILURE;
+            return 'failed';
         }
     }
+
 
     /**
      * Display quality scores in a formatted way
@@ -207,54 +149,6 @@ class GenerateAdvisor extends Command
         $this->newLine();
     }
 
-    /**
-     * Run advisor generation in background queue
-     */
-    protected function runInBackground(string $name): int
-    {
-        try {
-            $advisor = Advisor::where('key', $name)->first();
-
-            if (! $advisor) {
-                $this->error("❌ Advisor not found: {$name}");
-
-                return Command::FAILURE;
-            }
-
-            // Create job record
-            $generationJob = AdvisorGenerationJob::create([
-                'advisor_key' => $advisor->key,
-                'status' => AdvisorGenerationJob::STATUS_PENDING,
-                'progress' => 0,
-                'current_step' => 'Queued for generation',
-            ]);
-
-            // Dispatch to queue
-            GenerateAdvisorJob::dispatch($generationJob)
-                ->onQueue(config('advisors.queue.name'));
-
-            $this->info('✅ Advisor generation job queued successfully!');
-            $this->line("📋 Job ID: {$generationJob->id}");
-            $this->line("🔄 Status: {$generationJob->status}");
-            $this->newLine();
-
-            $this->info('To check status:');
-            $this->comment("  php artisan advisor:generate {$name} --poll");
-            $this->comment('  curl '.url("/api/advisors/jobs/{$generationJob->id}/status"));
-            $this->newLine();
-
-            $this->info('To monitor with Horizon:');
-            $this->comment('  php artisan horizon');
-            $this->comment('  Visit: '.url('/horizon'));
-
-            return Command::SUCCESS;
-
-        } catch (Exception $e) {
-            $this->error('❌ Failed to queue job: '.$e->getMessage());
-
-            return Command::FAILURE;
-        }
-    }
 
     /**
      * Poll status of a background generation job
@@ -263,7 +157,13 @@ class GenerateAdvisor extends Command
     {
         try {
             // Find the most recent job for this advisor
-            $job = AdvisorGenerationJob::where('advisor_key', $name)
+            $advisor = Advisor::where('slug', $name)->first();
+            if (!$advisor) {
+                $this->error("❌ Advisor not found: {$name}");
+                return Command::FAILURE;
+            }
+            
+            $job = AdvisorGenerationJob::where('advisor_id', $advisor->id)
                 ->recent()
                 ->first();
 
