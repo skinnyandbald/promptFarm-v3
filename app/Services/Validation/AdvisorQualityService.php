@@ -62,7 +62,7 @@ class AdvisorQualityService
             $strengths[] = 'No remaining template placeholders';
         } else {
             $issues[] = "Found {$placeholderResult['count']} unsubstituted placeholders";
-            $issues = array_merge($issues, array_map(fn ($p) => "Unsubstituted: {{{{{$p}}}}}", $placeholderResult['placeholders']));
+            $issues = array_merge($issues, array_map(fn ($p) => "Unsubstituted: {{{$p}}}", $placeholderResult['placeholders']));
         }
 
         // Check for HTML comments (20 points)
@@ -158,7 +158,7 @@ class AdvisorQualityService
             $strengths[] = 'No remaining template placeholders';
         } else {
             $issues[] = "Found {$placeholderResult['count']} unsubstituted placeholders";
-            $issues = array_merge($issues, array_map(fn ($p) => "Unsubstituted: {{{{{$p}}}}}", $placeholderResult['placeholders']));
+            $issues = array_merge($issues, array_map(fn ($p) => "Unsubstituted: {{{$p}}}", $placeholderResult['placeholders']));
         }
 
         // Check for HTML comments (10 points - less critical for PK)
@@ -491,4 +491,5 @@ class AdvisorQualityService
             return [];
         }
     }
+
 }
