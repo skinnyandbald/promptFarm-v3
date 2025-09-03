@@ -8,25 +8,40 @@ use Symfony\Component\Yaml\Yaml;
 class AdvisorQualityService
 {
     protected array $piRequiredSections = [
-        '## **PK Guardrail**',
-        '## **Context**',
-        '## **Constitutional Identity Constraints**',
-        '## **Evidence-Based Prompt Engineering**',
-        '## **Chain-of-Thought Conditioning**',
-        '## **Few-Shot Behavioral Priming**',
-        '## **Retrieval-Augmented Context**',
-        '## **Constitutional AI Constraints**',
-        '## **Core Operating Principles**',
-        '## **Voice Authenticity Anchors**',
-        '## **Domain Expertise Boundaries**',
-        '## **Response Quality Standards**',
+        '**PK Guardrail**',
+        '**Context**',
+        '**Objective:**',
+        '## Constitutional Identity Constraints',
+        '**Required Response Format**',
+        '**Forbidden Character-Breaking Phrases**',
+        '**Self-Critique Protocol**',
+        '## Evidence-Based Prompt Engineering',
+        '**Chain-of-Thought Conditioning:**',
+        '**Few-Shot Behavioral Priming:**',
+        '**Retrieval-Augmented Context:**',
+        '**Constitutional AI Constraints:**',
+        '## Core Operating Principles',
+        '## Voice Authenticity Anchors',
+        '## Domain Expertise Boundaries',
+        '## Response Quality Standards',
     ];
 
     protected array $pkRequiredSections = [
-        '## Core Analytical Tensions',
-        '## Failed Pattern Library',
-        '## Industry Enemy Analysis',
-        '## Questions That Make People Uncomfortable',
+        '**Template:**',
+        '**Guardrail:**',
+        '## **Voice Anchor (CRITICAL - STUDY THIS)**',
+        '**Voice DNA:**',
+        '**Voice Examples (STUDY THESE):**',
+        '**Patterns (ALWAYS Follow):**',
+        '**Anti-Patterns (NEVER Do):**',
+        '## **Useful Tension Protocol**',
+        '**Challenge Threshold:**',
+        '**Never Accept These Without Specifics:**',
+        '**Demand Evidence For:**',
+        '**Format Preference:**',
+        '## **Battle-Tested Case Studies**',
+        '## **Analytical Tensions**',
+        '## **Daily Implementation**',
     ];
 
     /**
@@ -491,5 +506,4 @@ class AdvisorQualityService
             return [];
         }
     }
-
 }
