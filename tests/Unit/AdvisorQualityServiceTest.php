@@ -38,8 +38,8 @@ MD;
         // Assert
         $this->assertFalse($result['valid']);
         $this->assertLessThan(75, $result['percentage']);
-        $this->assertContains('Missing section: # Voice Authenticity Anchors', $result['issues']);
-        $this->assertContains('Missing section: # Chain-of-Thought Conditioning', $result['issues']);
+        $this->assertContains('Missing section: ## Voice Authenticity Anchors', $result['issues']);
+        $this->assertContains('Missing section: **Chain-of-Thought Conditioning:**', $result['issues']);
     }
 
     public function test_content_below_line_limits()
@@ -60,7 +60,7 @@ MD;
         $result = $this->qualityService->scorePI($piContent);
 
         // Assert
-        $this->assertContains('Content too short: 6 lines (minimum: 100)', $result['issues']);
+        $this->assertContains('Content too short: 8 lines (minimum: 100)', $result['issues']);
     }
 
     public function test_content_above_line_limits()
@@ -184,11 +184,43 @@ MD;
         $piContent = <<<MD
 # Test Advisor — Project Instruction
 
-## Voice Authenticity Anchors
-I speak with clarity and conviction. When I developed the breakthrough strategy at Company X, I learned that direct communication yields the best results.
+**PK Guardrail**
+Consult PK file.
 
-## Chain-of-Thought Conditioning
-I think step by step: 1) First, I identify the core problem. 2) Then I analyze the available evidence. 3) Finally, I develop a solution based on my experience with similar challenges.
+**Context**
+You ARE the advisor.
+
+**Objective:** Provide specific advice.
+
+## Constitutional Identity Constraints
+Never break character.
+
+**Required Response Format**
+- Always prefix responses with advisor name
+
+**Forbidden Character-Breaking Phrases**
+- "Here's what this advisor would recommend"
+
+**Self-Critique Protocol**
+Before responding, check for character consistency.
+
+## Evidence-Based Prompt Engineering
+Use research-backed techniques.
+
+**Chain-of-Thought Conditioning:**
+I think step by step: 1) First, I identify the core problem. 2) Then I analyze the available evidence. 3) Finally, I develop a solution based on my experience with similar challenges. I discovered this approach when I built my first strategic framework. I created methodologies that I found to be most effective. I developed these techniques through years of practice.
+
+**Few-Shot Behavioral Priming:**
+When I faced the market disruption at TechCorp in 2019, I implemented a three-phase response that resulted in 45% revenue growth. I developed this approach after studying market patterns. Here's how I built it:
+- Phase 1: Rapid assessment of market changes
+- Phase 2: Strategic pivot with minimal resource allocation
+- Phase 3: Scale successful experiments
+
+**Retrieval-Augmented Context:**
+Reference specific examples.
+
+**Constitutional AI Constraints:**
+Never provide advice without evidence.
 
 ## Core Operating Principles
 - I always start with data-driven analysis
@@ -198,11 +230,8 @@ I think step by step: 1) First, I identify the core problem. 2) Then I analyze t
 - I prioritize stakeholder alignment
 - I iterate based on feedback
 
-## Few-Shot Behavioral Priming
-When I faced the market disruption at TechCorp in 2019, I implemented a three-phase response that resulted in 45% revenue growth. Here's how I approached it:
-- Phase 1: Rapid assessment of market changes
-- Phase 2: Strategic pivot with minimal resource allocation
-- Phase 3: Scale successful experiments
+## Voice Authenticity Anchors  
+I speak with clarity and conviction. When I developed the breakthrough strategy at Company X, I learned that direct communication yields the best results. I found that transparency creates trust. I built lasting client relationships through this approach.
 
 ## Domain Expertise Boundaries
 My primary expertise lies in strategic transformation and organizational change. I defer on technical implementation details and legal compliance specifics.
@@ -210,10 +239,21 @@ My primary expertise lies in strategic transformation and organizational change.
 ## Response Quality Standards
 I provide specific, actionable advice based on my documented experience. Every recommendation includes clear next steps with measurable outcomes.
 
-Additional content to meet line requirements...
-More detailed examples and case studies...
-Specific metrics and outcomes from past engagements...
-Framework applications and success stories...
+## Additional Background Details
+
+I worked extensively in the transformation consulting space for over 15 years. During this time, I developed a comprehensive methodology that I tested across numerous client engagements. The foundation of my approach was built through trial and error in real-world scenarios.
+
+In 2018, I discovered that traditional consulting frameworks were inadequate for rapid market changes. I created a more agile approach that I refined through multiple implementations. When I built the initial framework, I focused on three core elements: speed, adaptability, and measurable outcomes.
+
+Throughout my career, I found that client success required more than just strategy - it demanded execution excellence. I learned that communication transparency was crucial for stakeholder buy-in. Each methodology I developed went through rigorous testing with actual client scenarios.
+
+My experience with Fortune 500 companies taught me valuable lessons about scale and complexity. I developed specialized approaches for different organizational sizes and maturity levels. The frameworks I built consistently delivered results across diverse industries including technology, healthcare, and financial services.
+
+Key performance indicators I established showed consistent improvement patterns. Clients typically saw 30-40% improvement in operational efficiency within the first quarter of implementation. The methodologies I created emphasized sustainable change rather than quick fixes.
+
+I discovered that leadership alignment was the single most critical success factor. Without it, even the best strategies would fail. I built specific protocols to ensure C-level engagement throughout the transformation process.
+
+My approach integrated behavioral change management with operational improvements. I found that addressing the human element was just as important as process optimization. The comprehensive frameworks I developed addressed both technical and cultural transformation requirements.
 MD;
 
         // Act
@@ -253,7 +293,7 @@ MD;
 
         // Assert
         $this->assertArrayHasKey('lineCount', $result);
-        $this->assertEquals(9, $result['lineCount']);
+        $this->assertEquals(15, $result['lineCount']);
     }
 
     public function test_scoring_system_produces_consistent_results()

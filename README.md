@@ -159,13 +159,6 @@ Generate with detailed quality feedback:
 php artisan advisor:generate bogusky --show-validation
 ```
 
-### With Custom Quality Threshold
-
-Enforce a minimum quality score:
-
-```bash
-php artisan advisor:generate bogusky --quality-threshold=85
-```
 
 ## Quality Validation System
 

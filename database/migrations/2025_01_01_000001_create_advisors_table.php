@@ -13,13 +13,14 @@ return new class extends Migration
     {
         Schema::create('advisors', function (Blueprint $table) {
             $table->id();
-            $table->string('key')->unique()->index();
+            $table->string('slug')->unique()->index();
             $table->string('name');
             $table->string('full_name');
             $table->text('known_for');
             $table->string('era');
             $table->text('style');
             $table->string('industry');
+            $table->string('advisor_type')->default('strategic');
             $table->text('primary_objective');
             $table->string('core_expertise_area');
             $table->json('related_expertise_areas');

@@ -2,17 +2,20 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Advisor extends Model
 {
+    use HasFactory;
+
     /**
      * The attributes that are mass assignable.
      *
      * @var array<string>
      */
     protected $fillable = [
-        'key',
         'name',
         'slug',
         'full_name',
@@ -20,6 +23,7 @@ class Advisor extends Model
         'era',
         'style',
         'industry',
+        'advisor_type',
         'primary_objective',
         'core_expertise_area',
         'related_expertise_areas',
@@ -41,11 +45,31 @@ class Advisor extends Model
     ];
 
     /**
-     * Scope to find advisor by key.
+     * Boot the model and add automatic slug generation.
      */
-    public function scopeByKey($query, string $key)
+    protected static function boot()
     {
-        return $query->where('key', $key);
+        parent::boot();
+
+        static::creating(function ($advisor) {
+            if (empty($advisor->slug) && ! empty($advisor->name)) {
+                $advisor->slug = Str::slug($advisor->name);
+            }
+        });
+
+        static::updating(function ($advisor) {
+            if ($advisor->isDirty('name') && ! $advisor->isDirty('slug')) {
+                $advisor->slug = Str::slug($advisor->name);
+            }
+        });
+    }
+
+    /**
+     * Scope to find advisor by slug.
+     */
+    public function scopeBySlug($query, string $slug)
+    {
+        return $query->where('slug', $slug);
     }
 
     /**
@@ -54,7 +78,7 @@ class Advisor extends Model
     public function getConfigArray(): array
     {
         return [
-            'key' => $this->key,
+            'slug' => $this->slug,
             'name' => $this->name,
             'full_name' => $this->full_name,
             'known_for' => $this->known_for,
@@ -63,8 +87,8 @@ class Advisor extends Model
             'industry' => $this->industry,
             'primary_objective' => $this->primary_objective,
             'core_expertise_area' => $this->core_expertise_area,
-            'related_expertise_areas' => is_array($this->related_expertise_areas) 
-                ? implode(', ', $this->related_expertise_areas) 
+            'related_expertise_areas' => is_array($this->related_expertise_areas)
+                ? implode(', ', $this->related_expertise_areas)
                 : $this->related_expertise_areas,
             'communication_style_description' => $this->communication_style_description,
             'decision_making_approach' => $this->decision_making_approach,
@@ -74,5 +98,13 @@ class Advisor extends Model
             'emotional_characteristics' => $this->emotional_characteristics,
             'unique_perspectives_or_contrarian_stances' => $this->unique_perspectives_or_contrarian_stances,
         ];
+    }
+
+    /**
+     * Get the advisor positions for this advisor
+     */
+    public function advisorPositions()
+    {
+        return $this->hasMany(AdvisorPosition::class, 'advisor_slug', 'slug');
     }
 }

@@ -35,14 +35,14 @@ class ResearchAdvisorPositionsJob implements ShouldQueue
     public function handle(LLMService $llmService): void
     {
         // Check if we already have cached positions and shouldn't force refresh
-        $existing = AdvisorPosition::where('advisor_key', $this->advisorKey)->first();
+        $existing = AdvisorPosition::where('advisor_slug', $this->advisorKey)->first();
         
         if ($existing && !$this->forceRefresh) {
-            Log::info('ResearchAdvisorPositionsJob: Positions already cached', [
+            Log::info('ResearchAdvisorPositionsJob: Positions already cached, skipping research', [
                 'advisor' => $this->advisorKey,
                 'cached_at' => $existing->created_at,
             ]);
-            return;
+            return; // Exit early - chained jobs will still run
         }
         
         Log::info('ResearchAdvisorPositionsJob: Starting research', [
@@ -70,7 +70,7 @@ class ResearchAdvisorPositionsJob implements ShouldQueue
             ]);
         } else {
             AdvisorPosition::create([
-                'advisor_key' => $this->advisorKey,
+                'advisor_slug' => $this->advisorKey,
                 'researched_positions' => $positions,
                 'research_model' => config('ai-models.purposes.fact_checking'),
                 'research_temperature' => 0.1,
@@ -165,13 +165,24 @@ PROMPT;
     {
         $lines = explode("\n", trim($positions));
         $positionCount = 0;
+        $invalidPositionLines = 0;
         
         foreach ($lines as $line) {
-            if (preg_match('/^POSITION\s+\d+:/', trim($line))) {
-                $positionCount++;
+            $trimmedLine = trim($line);
+            if (empty($trimmedLine)) continue;
+            
+            // Check if this line looks like a position header
+            if (preg_match('/^(POSITION|mel|pos)\s+\d+:/i', $trimmedLine)) {
+                if (preg_match('/^POSITION\s+\d+:/', $trimmedLine)) {
+                    $positionCount++;
+                } else {
+                    // This is a malformed position header (like "mel 3:")
+                    $invalidPositionLines++;
+                }
             }
         }
         
-        return $positionCount >= 8;
+        // Must have at least 8 valid positions AND no invalid position headers
+        return $positionCount >= 8 && $invalidPositionLines === 0;
     }
 }

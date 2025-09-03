@@ -13,16 +13,16 @@ class DebugPromptStructure extends Command
 
     protected $description = 'Debug which prompt structures cause formalization';
 
-    protected $testPrompts = [
+    protected array $testPrompts = [
         'original-v2' => 'Original V2 (No Voice Anchor, No Framework)',
         'test-a' => 'Test A (Voice Anchor + Comm Rules, NO Framework)',
         'test-b' => 'Test B (Voice Anchor + Framework, NO Comm Rules)',
         'test-c' => 'Test C (Voice Anchor ONLY)',
     ];
 
-    protected $userPrompt = "I'm building PromptFarm - a platform that creates AI advisors modeled after real experts like you. Each advisor maintains their authentic voice and expertise through systematic prompt engineering. Unlike generic ChatGPT, these advisors have strong personalities, specific frameworks, and challenge thinking like the real experts would. The problem: Every AI tool sounds the same. Generic. Safe. Useless for real strategic thinking. Our solution: Councils of 4 expert advisors that actually sound like Bogusky, Hormozi, Halbert, and Cal Henderson. They argue, they push back, they have opinions. Need your perspective on five critical questions: 1. How should we position PromptFarm against ChatGPT and other generic AI tools? 2. What mechanisms should we build to ensure our advisors maintain authentic voices and don't devolve into generic AI responses? 3. What cultural tension or industry friction should PromptFarm tap into? 4. What tool or feature would create natural conversation and demonstrate our value? 5. What uncomfortable truth about AI advisors should we address head-on?";
+    protected string $userPrompt = "I'm building PromptFarm - a platform that creates AI advisors modeled after real experts like you. Each advisor maintains their authentic voice and expertise through systematic prompt engineering. Unlike generic ChatGPT, these advisors have strong personalities, specific frameworks, and challenge thinking like the real experts would. The problem: Every AI tool sounds the same. Generic. Safe. Useless for real strategic thinking. Our solution: Councils of 4 expert advisors that actually sound like Bogusky, Hormozi, Halbert, and Cal Henderson. They argue, they push back, they have opinions. Need your perspective on five critical questions: 1. How should we position PromptFarm against ChatGPT and other generic AI tools? 2. What mechanisms should we build to ensure our advisors maintain authentic voices and don't devolve into generic AI responses? 3. What cultural tension or industry friction should PromptFarm tap into? 4. What tool or feature would create natural conversation and demonstrate our value? 5. What uncomfortable truth about AI advisors should we address head-on?";
 
-    public function handle()
+    public function handle(): int
     {
         $model = $this->option('model');
         $apiKey = config('services.openrouter.api_key');
@@ -34,7 +34,7 @@ class DebugPromptStructure extends Command
         }
 
         $this->info('🔬 SYSTEMATIC PROMPT STRUCTURE DEBUG');
-        $this->info('Testing model: '.$model);
+        $this->info('Testing model: '.((string) $model));
         $this->newLine();
 
         $results = [];
@@ -51,9 +51,14 @@ class DebugPromptStructure extends Command
             }
 
             $systemPrompt = file_get_contents($promptPath);
+            if ($systemPrompt === false) {
+                $this->error("Could not read prompt file: {$promptPath}");
+
+                continue;
+            }
 
             // Generate response
-            $response = $this->generateWithOpenRouter($systemPrompt, $model, $apiKey);
+            $response = $this->generateWithOpenRouter($systemPrompt, (string) $model, $apiKey);
 
             // Analyze response characteristics
             $analysis = $this->analyzeResponse($response);
@@ -166,7 +171,7 @@ class DebugPromptStructure extends Command
         return $analysis;
     }
 
-    protected function compareResults(array $results)
+    protected function compareResults(array $results): void
     {
         $comparison = [];
         foreach ($results as $key => $result) {

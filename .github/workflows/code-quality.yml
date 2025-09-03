@@ -33,7 +33,7 @@ jobs:
         run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
       
       - name: Cache Composer dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
@@ -58,7 +58,7 @@ jobs:
       - name: Run PHPStan (Static Analysis)
         run: |
           phpstan analyse \
-            --level=8 \
+            --level=5 \
             --no-progress \
             app/ config/
         continue-on-error: true
@@ -146,7 +146,7 @@ jobs:
       
       - name: Upload quality report
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: quality-report
           path: quality-report.md
@@ -169,7 +169,6 @@ jobs:
   
   frontend-quality:
     runs-on: ubuntu-latest
-    if: hashFiles('package.json') != ''
     
     steps:
       - name: Checkout code

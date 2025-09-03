@@ -40,6 +40,15 @@ class TemplateService
         // TODO: shouldn't we be using mustache variables rather than doing our own find and replace?
         foreach ($variables as $key => $value) {
             $placeholder = '{{' . $key . '}}';
+            
+            // Convert arrays to strings for template substitution
+            if (is_array($value)) {
+                $value = implode(', ', $value);
+            }
+            
+            // Ensure value is a string
+            $value = (string) $value;
+            
             $processed = str_replace($placeholder, $value, $processed);
         }
 
@@ -110,7 +119,9 @@ class TemplateService
      */
     public function extractVariables(string $template): array
     {
-        preg_match_all('/\{\{([^}]+)\}\}/', $template, $matches);
+        // Match only complete {{variable}} patterns, not malformed ones
+        // Use non-greedy matching and exclude newlines to avoid matching across lines
+        preg_match_all('/\{\{([^}\n]+?)\}\}/', $template, $matches);
         return array_unique($matches[1]);
     }
 

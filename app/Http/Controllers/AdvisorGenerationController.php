@@ -17,19 +17,19 @@ class AdvisorGenerationController extends Controller
     public function startGeneration(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'advisor_key' => 'required|string|max:255',
+            'advisor_slug' => 'required|string|max:255',
         ]);
 
-        $advisor = Advisor::where('key', $validated['advisor_key'])->first();
+        $advisor = Advisor::where('slug', $validated['advisor_slug'])->first();
 
-        if (!$advisor) {
+        if (! $advisor) {
             throw ValidationException::withMessages([
-                'advisor_key' => 'The specified advisor does not exist.',
+                'advisor_slug' => 'The specified advisor does not exist.',
             ]);
         }
 
         $generationJob = AdvisorGenerationJob::create([
-            'advisor_key' => $advisor->key,
+            'advisor_id' => $advisor->id,
             'status' => AdvisorGenerationJob::STATUS_PENDING,
             'progress' => 0,
             'current_step' => 'Queued for generation',
@@ -55,7 +55,7 @@ class AdvisorGenerationController extends Controller
 
         $response = [
             'job_id' => $job->id,
-            'advisor_key' => $job->advisor_key,
+            'advisor_slug' => $job->advisor->slug ?? 'N/A',
             'status' => $job->status,
             'progress' => $job->progress,
             'current_step' => $job->current_step,
@@ -94,7 +94,7 @@ class AdvisorGenerationController extends Controller
 
         return response()->json([
             'job_id' => $job->id,
-            'advisor_key' => $job->advisor_key,
+            'advisor_slug' => $job->advisor->slug ?? 'N/A',
             'pi_content' => $job->pi_content,
             'pk_content' => $job->pk_content,
             'quality_report' => $job->quality_report,
@@ -108,15 +108,18 @@ class AdvisorGenerationController extends Controller
     public function listJobs(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'advisor_key' => 'nullable|string|max:255',
+            'advisor_slug' => 'nullable|string|max:255',
             'status' => 'nullable|in:pending,processing,completed,failed',
             'limit' => 'nullable|integer|min:1|max:100',
         ]);
 
         $query = AdvisorGenerationJob::query();
 
-        if (isset($validated['advisor_key'])) {
-            $query->where('advisor_key', $validated['advisor_key']);
+        if (isset($validated['advisor_slug'])) {
+            $advisor = Advisor::where('slug', $validated['advisor_slug'])->first();
+            if ($advisor) {
+                $query->where('advisor_id', $advisor->id);
+            }
         }
 
         if (isset($validated['status'])) {
@@ -125,7 +128,8 @@ class AdvisorGenerationController extends Controller
 
         $jobs = $query->recent()
             ->limit($validated['limit'] ?? 20)
-            ->get(['id', 'advisor_key', 'status', 'progress', 'current_step', 'created_at', 'completed_at']);
+            ->with('advisor:id,slug')
+            ->get(['id', 'advisor_id', 'status', 'progress', 'current_step', 'created_at', 'completed_at']);
 
         return response()->json([
             'jobs' => $jobs,

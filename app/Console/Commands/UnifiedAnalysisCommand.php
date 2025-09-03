@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Storage;
 
 class UnifiedAnalysisCommand extends Command
 {
-    protected $signature = 'advisor:analyze 
+    protected $signature = 'advisor:analyze
         {type : Analysis type (historical|versions|quality|approach)}
         {--advisor= : Specific advisor to analyze}
         {--metric= : Specific metric to measure}
@@ -47,9 +47,8 @@ class UnifiedAnalysisCommand extends Command
 
         // Find historical PI files
         $historicalPaths = [
-            'alex_bogusky/v1/chatgpt-pi-conversation.md',
-            'alex_bogusky/v2/chatgpt-pi-conversation.md',
-            'alex_bogusky/v3/chatgpt-pi-conversation.md',
+            'advisors/historical/Advisors - Bog Halbert Homz Cal/PI.md',
+            'advisors/historical/[archived] Advisors - BHCH/PI.md',
         ];
 
         $currentPath = "advisors/{$advisorKey}/current/PI.md";
@@ -85,11 +84,11 @@ class UnifiedAnalysisCommand extends Command
         $this->info('🔍 Comparing Advisor Versions');
         $this->line('------------------------------');
 
-        $advisorKey = $this->option('advisor');
+        $advisorSlug = $this->option('advisor');
 
         // Get advisors to compare
-        $advisors = $advisorKey
-            ? Advisor::where('key', $advisorKey)->get()
+        $advisors = $advisorSlug
+            ? Advisor::where('slug', $advisorSlug)->get()
             : Advisor::all();
 
         if ($advisors->isEmpty()) {
@@ -103,7 +102,7 @@ class UnifiedAnalysisCommand extends Command
         foreach ($advisors as $advisor) {
             $this->info("Analyzing: {$advisor->name}");
 
-            $versions = $this->findAdvisorVersions($advisor->key);
+            $versions = $this->findAdvisorVersions($advisor->slug);
 
             foreach ($versions as $version => $paths) {
                 $piScore = null;
@@ -140,10 +139,12 @@ class UnifiedAnalysisCommand extends Command
         // Output in requested format
         if ($this->option('output') === 'json') {
             $outputPath = storage_path('app/advisor-tests/version_comparison.json');
+            File::ensureDirectoryExists(dirname($outputPath));
             File::put($outputPath, json_encode($results, JSON_PRETTY_PRINT));
             $this->info("Results saved to {$outputPath}");
         } elseif ($this->option('output') === 'csv') {
             $outputPath = storage_path('app/advisor-tests/version_comparison.csv');
+            File::ensureDirectoryExists(dirname($outputPath));
             $csvContent = $this->buildCsvContent($results);
             File::put($outputPath, $csvContent);
             $this->info("Results saved to {$outputPath}");
@@ -367,17 +368,17 @@ class UnifiedAnalysisCommand extends Command
         }
     }
 
-    private function findAdvisorVersions(string $advisorKey): array
+    private function findAdvisorVersions(string $advisorSlug): array
     {
         $versions = [];
-        $advisorDirName = $this->getAdvisorDirectoryName($advisorKey);
+        $advisorDirName = $this->getAdvisorDirectoryName($advisorSlug);
         $basePath = storage_path("app/advisors/{$advisorDirName}");
 
         // Check standard version locations
         $versionPaths = [
             'v2' => "{$basePath}/v2",
             'v3' => "{$basePath}/v3",
-            'current' => "{$basePath}/current",
+            'historical' => "{$basePath}/historical",
             'test' => "{$basePath}/test",
         ];
 
@@ -395,7 +396,7 @@ class UnifiedAnalysisCommand extends Command
             }
         }
 
-        // Check timestamped versions
+        // Check timestamped versions in main advisor directory
         if (File::exists($basePath)) {
             $directories = File::directories($basePath);
             foreach ($directories as $dir) {
@@ -408,6 +409,34 @@ class UnifiedAnalysisCommand extends Command
                         $versions[$dirName] = [
                             'pi' => File::exists($piPath) ? $piPath : null,
                             'pk' => File::exists($pkPath) ? $pkPath : null,
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Check comparison tests directory
+        $comparisonsPath = storage_path('app/advisor-tests/comparisons');
+        if (File::exists($comparisonsPath)) {
+            $compDirs = File::directories($comparisonsPath);
+            foreach ($compDirs as $dir) {
+                $dirName = basename($dir);
+                if (preg_match('/^\d{4}-\d{2}-\d{2}/', $dirName)) {
+                    // Look for PK files that might be comparison versions
+                    $safePK = "{$dir}/safe_PK.md";
+                    $controversialPK = "{$dir}/controversial_PK.md";
+
+                    if (File::exists($safePK)) {
+                        $versions["safe-{$dirName}"] = [
+                            'pi' => null,
+                            'pk' => $safePK,
+                        ];
+                    }
+
+                    if (File::exists($controversialPK)) {
+                        $versions["controversial-{$dirName}"] = [
+                            'pi' => null,
+                            'pk' => $controversialPK,
                         ];
                     }
                 }
@@ -592,23 +621,23 @@ class UnifiedAnalysisCommand extends Command
     private function buildCsvContent(array $results): string
     {
         $csv = [];
-        
+
         // Get headers - use first result if available, otherwise use defaults
-        if (!empty($results)) {
+        if (! empty($results)) {
             $headers = array_keys($results[0]);
         } else {
             // Default headers when no results
             $headers = ['advisor', 'version', 'pi_score', 'pk_score', 'combined'];
         }
-        
+
         // Add header row
-        $csv[] = implode(',', array_map(fn($h) => '"' . str_replace('"', '""', ucfirst(str_replace('_', ' ', $h))) . '"', $headers));
-        
+        $csv[] = implode(',', array_map(fn ($h) => '"'.str_replace('"', '""', ucfirst(str_replace('_', ' ', $h))).'"', $headers));
+
         // If no results, return just headers
         if (empty($results)) {
             return implode("\n", $csv);
         }
-        
+
         // Add data rows
         foreach ($results as $row) {
             $csvRow = [];
@@ -616,27 +645,23 @@ class UnifiedAnalysisCommand extends Command
                 $value = $row[$header] ?? '';
                 // Escape quotes and wrap in quotes if contains comma, quote, or newline
                 if (is_string($value) && (str_contains($value, ',') || str_contains($value, '"') || str_contains($value, "\n"))) {
-                    $csvRow[] = '"' . str_replace('"', '""', $value) . '"';
+                    $csvRow[] = '"'.str_replace('"', '""', $value).'"';
                 } else {
                     $csvRow[] = $value;
                 }
             }
             $csv[] = implode(',', $csvRow);
         }
-        
+
         return implode("\n", $csv);
     }
 
-    private function getAdvisorDirectoryName(string $advisorKey): string
+    private function getAdvisorDirectoryName(string $advisorSlug): string
     {
-        return match ($advisorKey) {
-            'bogusky' => 'alex-bogusky',
-            'hormozi' => 'alex-hormozi',
-            'henderson' => 'cal-henderson',
-            'halbert' => 'gary-halbert',
+        return match ($advisorSlug) {
             'csv_test' => 'csv-test',
             'debug_csv' => 'debug-csv',
-            default => str_replace('_', '-', $advisorKey),
+            default => str_replace('_', '-', $advisorSlug),
         };
     }
 }

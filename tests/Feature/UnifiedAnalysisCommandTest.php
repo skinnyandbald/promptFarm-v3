@@ -18,6 +18,21 @@ class UnifiedAnalysisCommandTest extends TestCase
 
         // Setup advisors disk for testing
         Storage::fake('advisors');
+        
+        // Clean up any leftover test data from previous runs
+        if (File::exists(storage_path('app/advisor-tests'))) {
+            File::deleteDirectory(storage_path('app/advisor-tests'));
+        }
+    }
+    
+    protected function tearDown(): void
+    {
+        // Clean up test artifacts
+        if (File::exists(storage_path('app/advisor-tests'))) {
+            File::deleteDirectory(storage_path('app/advisor-tests'));
+        }
+        
+        parent::tearDown();
     }
 
     public function test_unified_analysis_command_exists(): void
@@ -45,7 +60,6 @@ class UnifiedAnalysisCommandTest extends TestCase
     {
         // Create test advisor
         Advisor::create([
-            'key' => 'test_advisor',
             'name' => 'Test Advisor',
             'slug' => 'test-advisor',
             'full_name' => 'Test Expert Advisor',
@@ -63,11 +77,16 @@ class UnifiedAnalysisCommandTest extends TestCase
             'unique_perspectives_or_contrarian_stances' => 'Tests should fail first',
         ]);
 
-        // Create test files
-        Storage::disk('advisors')->put('test_advisor/current/PI.md', 'Test PI content');
-        Storage::disk('advisors')->put('test_advisor/current/PK.md', 'Test PK content');
+        // Create test files matching actual directory structure
+        $timestamp = now()->format('Y-m-d');
+        $jobId = 'test123';
+        $basePath = "test-advisor/{$timestamp}-job-{$jobId}";
+        Storage::disk('advisors')->makeDirectory($basePath);
+        Storage::disk('advisors')->put("{$basePath}/TestAdvisor_PI.md", 'Test PI content');
+        Storage::disk('advisors')->put("{$basePath}/TestAdvisor_PK.md", 'Test PK content');
+        Storage::disk('advisors')->put("{$basePath}/metadata.json", json_encode(['version' => '1.0.0']));
 
-        $this->artisan('advisor:analyze versions --advisor=test_advisor')
+        $this->artisan('advisor:analyze versions --advisor=test-advisor')
             ->assertSuccessful()
             ->expectsOutputToContain('Comparing Advisor Versions')
             ->expectsOutputToContain('Test Advisor');
@@ -127,7 +146,6 @@ class UnifiedAnalysisCommandTest extends TestCase
     {
         // Create test advisor
         Advisor::create([
-            'key' => 'test_advisor',
             'name' => 'Test Advisor',
             'slug' => 'test-advisor',
             'full_name' => 'Test Expert Advisor',
@@ -214,7 +232,6 @@ class UnifiedAnalysisCommandTest extends TestCase
     {
         // Create test advisor with consistent key/slug
         $advisor = Advisor::create([
-            'key' => 'csv-test-advisor',
             'name' => 'CSV Test Advisor',
             'slug' => 'csv-test-advisor',
             'full_name' => 'CSV Test Full Name',
@@ -232,9 +249,14 @@ class UnifiedAnalysisCommandTest extends TestCase
             'unique_perspectives_or_contrarian_stances' => 'CSV > JSON',
         ]);
 
-        // Create test version files for the advisor using the same name
-        Storage::disk('advisors')->put('csv-test-advisor/current/PI.md', 'Test PI content');
-        Storage::disk('advisors')->put('csv-test-advisor/current/PK.md', 'Test PK content');
+        // Create test version files matching actual directory structure
+        $timestamp = now()->format('Y-m-d');
+        $jobId = 'csv123';
+        $basePath = "csv-test-advisor/{$timestamp}-job-{$jobId}";
+        Storage::disk('advisors')->makeDirectory($basePath);
+        Storage::disk('advisors')->put("{$basePath}/CSVTestAdvisor_PI.md", 'Test PI content');
+        Storage::disk('advisors')->put("{$basePath}/CSVTestAdvisor_PK.md", 'Test PK content');
+        Storage::disk('advisors')->put("{$basePath}/metadata.json", json_encode(['version' => '1.0.0']));
 
         // Run analysis specifically for this advisor to ensure we get results
         $this->artisan('advisor:analyze versions --advisor=csv-test-advisor --output=csv')
@@ -246,19 +268,27 @@ class UnifiedAnalysisCommandTest extends TestCase
         // Verify CSV content structure
         $csvContent = File::get(storage_path('app/advisor-tests/version_comparison.csv'));
         $this->assertNotEmpty($csvContent, 'CSV file should not be empty');
-        
+
         // Check for proper CSV structure
         $lines = explode("\n", trim($csvContent));
         $this->assertGreaterThanOrEqual(1, count($lines), 'CSV should have at least a header row');
-        
+
         // Check header
         $this->assertStringContainsString('Advisor', $lines[0]);
         $this->assertStringContainsString('Version', $lines[0]);
-        
-        // If we have a data row, verify it
+
+        // If we have a data row, verify it contains the advisor name
         if (count($lines) > 1) {
-            $this->assertStringContainsString('CSV Test Advisor', $lines[1]);
-            $this->assertStringContainsString('current', $lines[1]);
+            // Find the row with our test data (might not be first row due to existing data)
+            $foundTestData = false;
+            foreach ($lines as $index => $line) {
+                if ($index === 0) continue; // Skip header
+                if (str_contains($line, 'CSV Test Advisor')) {
+                    $foundTestData = true;
+                    break;
+                }
+            }
+            $this->assertTrue($foundTestData, 'Should find CSV Test Advisor in output');
         }
 
         // Clean up

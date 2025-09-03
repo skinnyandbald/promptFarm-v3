@@ -46,16 +46,9 @@ flowchart TD
     
     CalculateOverall --> SaveFiles[Save PI.md PK.md metadata.json<br/>Progress: 100%]
     
-    SaveFiles --> CheckThreshold{--quality-threshold set?}
-    
-    CheckThreshold -->|No| DisplayResults[Display Quality Report]
-    CheckThreshold -->|Yes| CompareThreshold{Score >= threshold?}
-    
-    CompareThreshold -->|Yes| DisplayResults
-    CompareThreshold -->|No| FailCommand[Return FAILURE<br/>Warning: Below threshold]
+    SaveFiles --> DisplayResults[Display Quality Report]
     
     DisplayResults --> Success([Command SUCCESS])
-    FailCommand --> Failed([Command FAILURE])
     
     %% Quality Scoring Details
     style ScorePI fill:#e1f5fe
@@ -113,7 +106,7 @@ sequenceDiagram
 ## Quality Scoring System
 
 ### Overview
-The quality threshold system ensures generated advisors meet minimum standards before deployment. Each advisor is scored on a 100-point scale based on multiple criteria.
+The quality scoring system evaluates generated advisors for comprehensive feedback. Each advisor is scored on a 100-point scale based on multiple criteria.
 
 ### Scoring Breakdown
 
@@ -160,8 +153,6 @@ Overall Score = (PI Score + PK Score) / 2
 # Generate advisor synchronously (blocks terminal)
 php artisan advisor:generate example-advisor
 
-# With quality threshold enforcement
-php artisan advisor:generate example-advisor --quality-threshold=85
 
 # Show detailed validation feedback
 php artisan advisor:generate example-advisor --show-validation
@@ -373,12 +364,8 @@ php artisan advisor:generate marketing-advisor --poll
 
 ### 2. Quality-Controlled Generation
 ```bash
-# Generate with 85% quality requirement
-php artisan advisor:generate technical-advisor --quality-threshold=85 --show-validation
-
-# If quality < 85%, command returns failure
-# ⚠️ Quality score (82%) is below threshold (85%)
-# Exit code: 1
+# Generate with detailed validation feedback
+php artisan advisor:generate technical-advisor --show-validation
 ```
 
 ### 3. API-Based Integration

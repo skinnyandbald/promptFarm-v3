@@ -2,7 +2,10 @@
 
 namespace App\Services;
 
+use App\Exceptions\TemplateComplianceException;
 use App\Services\Validation\AdvisorQualityService;
+use App\Services\Validation\TemplateComplianceValidator;
+use App\Services\Validation\AIEmbodimentQualityScorer;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -13,28 +16,57 @@ class AdvisorGenerationService
         protected TemplateService $templateService,
         protected LLMService $llmService,
         protected AdvisorConfigService $configService,
-        protected AdvisorQualityService $qualityService
+        protected AdvisorQualityService $qualityService,
+        protected TemplateComplianceValidator $templateComplianceValidator,
+        protected AIEmbodimentQualityScorer $aiEmbodimentScorer
     ) {}
 
     /**
      * Generate a complete advisor with PI and PK components
      *
      * @param  array|\App\Models\Advisor  $advisorData  Advisor data array or model
-     * @param  ?string  $version  Template version
      * @param  ?callable  $progressCallback  Optional callback for progress updates
+     * @param  bool  $exportFiles  Whether to export files to local storage for testing
+     * @param  ?int  $jobId  Optional job ID for tracking
      */
-    public function generateAdvisor($advisorData, $version = 'v1', ?callable $progressCallback = null): array
+    public function generateAdvisor($advisorData, ?callable $progressCallback = null, bool $exportFiles = false, ?int $jobId = null): array
     {
         // Handle Advisor model if passed
         if ($advisorData instanceof \App\Models\Advisor) {
             $advisor = $advisorData;
             $advisorData = $advisor->toArray();
-            $advisorData['key'] = $advisor->key;
+            $advisorData['slug'] = $advisor->slug;
+        }
+
+        // Check if advisor has researched positions
+        $advisorSlug = $advisorData['slug'] ?? null;
+        if ($advisorSlug) {
+            $hasPositions = \App\Models\AdvisorPosition::where('advisor_slug', $advisorSlug)->exists();
+
+            if (! $hasPositions) {
+                Log::info('No positions found for advisor, triggering research', [
+                    'advisor_slug' => $advisorSlug,
+                ]);
+
+                // Research will be handled by job chaining when running via queue
+                // For direct service calls (sync mode), run research immediately
+                if (config('queue.default') === 'sync') {
+                    $researchJob = new \App\Jobs\ResearchAdvisorPositionsJob(
+                        $advisorSlug,
+                        $advisorData,
+                        false
+                    );
+                    $researchJob->handle($this->llmService);
+                }
+
+                Log::info('Research completed, proceeding with generation', [
+                    'advisor_slug' => $advisorSlug,
+                ]);
+            }
         }
 
         Log::info('Starting advisor generation', [
             'advisor_name' => $advisorData['name'] ?? 'unknown',
-            'version' => $version,
         ]);
 
         // Report initial progress
@@ -43,17 +75,25 @@ class AdvisorGenerationService
         }
 
         try {
-            // Prepare directory structure using the advisors disk
+            // Load config once if slug is provided
+            $mappedVars = [];
+            if (isset($advisorData['slug']) && is_string($advisorData['slug'])) {
+                $config = $this->configService->getAdvisorConfig($advisorData['slug']);
+                $mappedVars = $this->configService->mapVariables($config);
+                // Merge config data for enhancement
+                $advisorData = array_merge($advisorData, $config);
+            }
+
+            // Prepare advisor data
             $advisorName = $advisorData['full_name'] ?? $advisorData['fullName'] ?? $advisorData['name'] ?? 'Unknown';
             $sanitizedName = Str::slug($advisorName);
             $basePath = $sanitizedName;
-            Storage::disk('advisors')->makeDirectory($basePath);
 
             // Generate PI content
             if ($progressCallback) {
                 $progressCallback(25, 'Generating PI (Project Instructions)');
             }
-            $piContent = $this->generatePI($advisorData, $version);
+            $piContent = $this->generatePI($advisorData, $mappedVars);
 
             // Score PI quality
             $piScore = $this->qualityService->scorePI($piContent);
@@ -66,16 +106,11 @@ class AdvisorGenerationService
             // Inject quality metadata into PI
             $piContent = $this->injectQualityMetadata($piContent, $piScore['percentage'], 1, 'PI');
 
-            // Save PI to advisors disk
-            $piPath = "{$basePath}/PI.md";
-            Storage::disk('advisors')->put($piPath, $piContent);
-            Log::info('PI saved', ['path' => $piPath, 'size' => strlen($piContent)]);
-
             // Generate PK content
             if ($progressCallback) {
                 $progressCallback(50, 'Generating PK (Project Knowledge)');
             }
-            $pkContent = $this->generatePK($advisorData, $version);
+            $pkContent = $this->generatePK($advisorData, $mappedVars);
 
             // Score PK quality
             $pkScore = $this->qualityService->scorePK($pkContent);
@@ -85,43 +120,34 @@ class AdvisorGenerationService
                 'issues' => count($pkScore['issues']),
             ]);
 
-            // Save PK to advisors disk
-            $pkPath = "{$basePath}/PK.md";
-            Storage::disk('advisors')->put($pkPath, $pkContent);
-            Log::info('PK saved', ['path' => $pkPath, 'size' => strlen($pkContent)]);
-
             // Get overall quality report
             if ($progressCallback) {
                 $progressCallback(75, 'Validating quality and preparing files');
             }
             $qualityReport = $this->qualityService->getValidationReport($piScore, $pkScore);
 
-            // Save metadata with quality scores
-            $metadataPath = "{$basePath}/metadata.json";
+            // Prepare metadata for return
             $metadata = [
                 'name' => $advisorName,
                 'sanitized_name' => $sanitizedName,
+                'job_id' => $jobId,
                 'generated_at' => now()->toIso8601String(),
-                'pi_file' => $piPath,
-                'pk_file' => $pkPath,
                 'pi_size' => strlen($piContent),
                 'pk_size' => strlen($pkContent),
-                'version' => $version ?? '1.0.0',
+                'version' => '1.0.0', // TODO: shouldn't this a Class const or pulled from the template?
                 'quality' => $qualityReport,
             ];
-            Storage::disk('advisors')->put($metadataPath, json_encode($metadata, JSON_PRETTY_PRINT));
-            Log::info('Metadata saved with quality report', ['path' => $metadataPath]);
 
-            $savedFiles = [
-                'pi' => $piPath,
-                'pk' => $pkPath,
-                'metadata' => $metadataPath,
-                'base_path' => $basePath,
-            ];
+            // Optional file export for local development
+            $exportedFiles = null;
+            if ($exportFiles) {
+                $exportedFiles = $this->exportToFiles($advisorData, $piContent, $pkContent, $metadata);
+            }
 
             Log::info('Advisor generation completed successfully', [
                 'advisor_name' => $advisorData['name'],
-                'files' => $savedFiles,
+                'files_exported' => $exportFiles,
+                'exported_files' => $exportedFiles,
             ]);
 
             // Report completion
@@ -134,7 +160,7 @@ class AdvisorGenerationService
                 'advisor_name' => $advisorData['name'],
                 'pi_content' => $piContent,
                 'pk_content' => $pkContent,
-                'files' => $savedFiles,
+                'exported_files' => $exportedFiles,
                 'quality' => $qualityReport,
                 'generated_at' => now()->toIso8601String(),
             ];
@@ -151,46 +177,33 @@ class AdvisorGenerationService
 
     /**
      * Generate PI (Project Instructions) content with two-stage approach:
-     * Stage 1: Deterministic template substitution (instant)
-     * Stage 2: Lightweight LLM enhancement for examples (2-3 seconds)
+     * Stage 1: Structured variable generation with reliable filling
+     * Stage 2: Lightweight LLM enhancement for examples (preserved exactly)
      */
-    protected function generatePI(array $advisorData, ?string $version = 'v1'): string
+    protected function generatePI(array $advisorData, array $mappedVars = []): string
     {
-        $templateName = $version ? "meta_pi_template_{$version}" : 'meta_pi_template';
-
-        // Load template (may throw if not found)
+        $templateName = 'meta_pi_template_v1';
         $template = $this->templateService->loadTemplate($templateName);
 
-        // Map variables using AdvisorConfigService
-        $mappedVars = [];
-        if (isset($advisorData['key']) && is_string($advisorData['key'])) {
-            // Load config by key and map variables
-            $config = $this->configService->getAdvisorConfig($advisorData['key']);
-            $mappedVars = $this->configService->mapVariables($config);
-            // Merge config data for enhancement
-            $advisorData = array_merge($advisorData, $config);
-        } else {
-            // Map directly from advisorData
-            $mappedVars = $this->configService->mapVariables($advisorData);
-        }
+        // NEW: Generate variables with structured output
+        $variables = $this->generatePIVariables($advisorData, $template);
 
-        // Get all template variables and ensure they're provided
-        $variablesInTemplate = $this->extractVariables($template);
-        $substitutionMap = [];
-        foreach ($variablesInTemplate as $varName) {
-            $substitutionMap[$varName] = $mappedVars[$varName] ?? '';
-        }
+        // Add static variables (UNCHANGED)
+        $variables['advisor_name'] = $advisorData['name'];
+        $variables['advisor_name_pascal'] = Str::studly($advisorData['name']);
+        $variables['date'] = now()->format('Y-m-d');
 
-        // Stage 1: Deterministic template substitution
-        $processedTemplate = $this->templateService->substituteVariables($template, $substitutionMap);
+        // Render with Mustache (IMPROVED)
+        $mustache = new \Mustache_Engine(['escape' => fn ($v) => $v]);
+        $processedTemplate = $mustache->render($template, $variables);
 
         // Validate base template
         $processedTemplate = trim($processedTemplate);
         if ($processedTemplate === '') {
-            throw new \Exception('PI generation produced empty content after deterministic substitution');
+            throw new \Exception('PI generation produced empty content after substitution');
         }
 
-        // Stage 2: Enhance with specific examples using lightweight LLM
+        // Stage 2: PRESERVED EXACTLY AS IS
         Log::info('Starting PI enhancement with model', ['model' => config('ai-models.purposes.pi_enhancement')]);
         $enhancedTemplate = $this->enhancePIWithExamples($processedTemplate, $advisorData);
         Log::info('PI enhancement complete');
@@ -198,7 +211,315 @@ class AdvisorGenerationService
         // Remove any leftover unreplaced variable markers
         $enhancedTemplate = preg_replace('/\{\{\s*([^\}]+)\s*\}\}/', '', $enhancedTemplate);
 
+        // NEW: Validate AI embodiment quality using hybrid scorer
+        $embodimentResult = $this->aiEmbodimentScorer->scoreAIEmbodiment($enhancedTemplate, $advisorData);
+        if ($embodimentResult['total_score'] < 75) {
+            Log::warning('AI embodiment quality below threshold', [
+                'score' => $embodimentResult['total_score'],
+                'valid' => $embodimentResult['valid'],
+                'recommendations' => $embodimentResult['recommendations'],
+            ]);
+        } else {
+            Log::info('AI embodiment quality validation passed', [
+                'score' => $embodimentResult['total_score'],
+                'breakdown' => $embodimentResult['breakdown']
+            ]);
+        }
+
+        // CRITICAL: Check 8000 character limit
+        if (strlen($enhancedTemplate) > 8000) {
+            throw new \Exception('PI exceeds 8000 character limit: ' . strlen($enhancedTemplate) . ' characters');
+        }
+
         return $enhancedTemplate;
+    }
+
+    /**
+     * Generate PI variables with structured output for reliable variable filling
+     */
+    private function generatePIVariables(array $advisorData, string $template): array
+    {
+        $maxAttempts = 3;
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                // Build JSON schema for variables
+                $schema = $this->buildPIVariableSchema($template);
+
+                // Build prompt for variable generation
+                $prompt = $this->buildPIVariablePrompt($advisorData);
+
+                // Generate with structured output
+                $response = $this->llmService->generateText($prompt, [
+                    'model' => config('ai-models.purposes.pi_enhancement'),
+                    'temperature' => 0.7,
+                    'response_format' => $schema,
+                    'system_message' => 'Generate appropriate content for all template variables',
+                ]);
+
+                // Parse JSON response
+                $variables = json_decode($response, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    Log::info('Structured variable generation successful', [
+                        'attempt' => $attempt,
+                        'variables_count' => count($variables),
+                    ]);
+
+                    return $variables;
+                }
+
+                Log::warning('JSON parsing failed for structured output', [
+                    'attempt' => $attempt,
+                    'error' => json_last_error_msg(),
+                ]);
+
+            } catch (\Exception $e) {
+                Log::warning('Structured variable generation failed', [
+                    'attempt' => $attempt,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        throw new \Exception('Failed to generate PI variables with structured output after '.$maxAttempts.' attempts');
+    }
+
+    /**
+     * Build JSON schema for PI template variables
+     */
+    private function buildPIVariableSchema(string $template): array
+    {
+        // Extract all {{variables}} from template
+        preg_match_all('/\{\{([^}]+)\}\}/', $template, $matches);
+        $variables = array_unique($matches[1]);
+
+        $properties = [];
+        $required = [];
+
+        foreach ($variables as $variable) {
+            // Skip static variables that are handled separately
+            if (in_array($variable, ['advisor_name', 'advisor_name_pascal', 'date'])) {
+                continue;
+            }
+
+            $required[] = $variable;
+
+            // Define specific requirements for known PI variables
+            switch ($variable) {
+                case 'chain_of_thought':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 300,
+                        'description' => 'Step-by-step reasoning process with examples from advisor\'s documented work',
+                    ];
+                    break;
+
+                case 'few_shot_examples':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 80,
+                        'description' => '2 brief, specific examples from advisor\'s work',
+                    ];
+                    break;
+
+                case 'retrieval_context':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 40,
+                        'maxLength' => 250,
+                        'description' => 'Instructions for referencing advisor\'s specific case studies and documented outcomes',
+                    ];
+                    break;
+
+                case 'constitutional_constraints':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 300,
+                        'description' => 'Advisor-specific behavioral boundaries and evidence requirements',
+                    ];
+                    break;
+
+                case 'forbidden_phrases':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => '5-7 specific phrases as bullet points only, no explanations',
+                    ];
+                    break;
+
+                case 'self_critique_protocol':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 80,
+                        'description' => '3-4 brief internal check questions, no explanations',
+                    ];
+                    break;
+
+                case 'constitutional_constraints_summary':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 40,
+                        'maxLength' => 80,
+                        'description' => 'Advisor-specific behavioral boundaries and evidence requirements',
+                    ];
+                    break;
+
+                case 'operating_principles':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => '5-6 concise principles as bullet points, no explanations',
+                    ];
+                    break;
+
+                case 'communication_style':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => 'How the advisor communicates and presents ideas',
+                    ];
+                    break;
+
+                case 'decision_making_approach':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => 'The advisor\'s decision-making framework and process',
+                    ];
+                    break;
+
+                case 'key_phrases':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 80,
+                        'description' => 'Signature phrases or terminology the advisor is known for',
+                    ];
+                    break;
+
+                case 'emotional_characteristics':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 80,
+                        'description' => 'The advisor\'s emotional tone and style',
+                    ];
+                    break;
+
+                case 'unique_perspectives':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 80,
+                        'description' => 'Contrarian or unique views this advisor holds',
+                    ];
+                    break;
+
+                case 'core_expertise':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => 'Primary domain of expertise',
+                    ];
+                    break;
+
+                case 'related_expertise':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 80,
+                        'description' => 'Secondary areas of expertise',
+                    ];
+                    break;
+
+                case 'scenarios_to_defer':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 300,
+                        'description' => 'When the advisor should defer or redirect to others',
+                    ];
+                    break;
+
+                case 'explicit_limitations':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 100,
+                        'description' => 'Areas the advisor should never advise on',
+                    ];
+                    break;
+
+                default:
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => 'Content for '.$variable,
+                    ];
+            }
+        }
+
+        return [
+            'type' => 'json_schema',
+            'json_schema' => [
+                'name' => 'pi_template_variables',
+                'strict' => true,
+                'schema' => [
+                    'type' => 'object',
+                    'properties' => $properties,
+                    'required' => $required,
+                    'additionalProperties' => false,
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Build prompt for PI variable generation
+     */
+    private function buildPIVariablePrompt(array $advisorData): string
+    {
+        $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown Advisor';
+        $expertise = $advisorData['core_expertise_area'] ?? $advisorData['expertise_area'] ?? '';
+        $background = $advisorData['background_description'] ?? $advisorData['background'] ?? '';
+        $notableWork = $advisorData['notable_achievements'] ?? '';
+        $methodology = $advisorData['decision_making_approach'] ?? '';
+
+        return <<<PROMPT
+Generate ultra-concise Project Instruction variables for {$advisorName}.
+
+PROFILE: {$advisorName} | {$expertise} | {$background}
+
+COMPRESSION STRATEGY - Prioritize HIGH-IMPACT content:
+1. Core methodology over background details
+2. Specific examples with metrics over vague principles  
+3. Contrarian insights over common wisdom
+4. Actionable triggers over theoretical explanations
+5. Sharp, memorable phrases over verbose descriptions
+
+EFFICACY REQUIREMENTS:
+- Each variable must contain advisor's unique differentiation
+- Include specific campaign/project names with measurable outcomes
+- Focus on decision-making patterns that reveal personality
+- Capture signature phrases and contrarian positions
+- Provide concrete behavioral triggers
+
+CRITICAL LENGTH CONSTRAINT: Final PI must be <8000 characters.
+Target: 6000 characters structured + 2000 character enhancement budget.
+
+Write in advisor's voice. Use bullets, not paragraphs. No filler words.
+Return JSON with template variables as keys, compressed high-impact content as values.
+PROMPT;
     }
 
     /**
@@ -206,16 +527,12 @@ class AdvisorGenerationService
      */
     protected function enhancePIWithExamples(string $baseTemplate, array $advisorData): string
     {
-        // Check if template has HTML comments that need processing
+        // Extract HTML comments for logging/debugging purposes
         $htmlComments = $this->templateService->extractHTMLComments($baseTemplate);
-        if (empty($htmlComments)) {
-            Log::info('No HTML comments to process, returning base template');
-
-            return $baseTemplate;
-        }
 
         Log::info('enhancePIWithExamples called', [
             'advisor_data_keys' => array_keys($advisorData),
+            'base_template_length' => strlen($baseTemplate),
             'html_comments_found' => count($htmlComments),
         ]);
 
@@ -226,6 +543,9 @@ class AdvisorGenerationService
         $notableWork = $advisorData['notable_achievements'] ?? '';
         $methodology = $advisorData['decision_making_approach'] ?? '';
         $keyPhrases = $advisorData['key_phrases_or_terminology'] ?? '';
+        if (is_array($keyPhrases)) {
+            $keyPhrases = implode(', ', $keyPhrases);
+        }
 
         // Build enhancement prompt
         $enhancementPrompt = $this->buildPIEnhancementPrompt(
@@ -246,7 +566,7 @@ class AdvisorGenerationService
             ]);
 
             // Use configured model for PI enhancement
-            $enhancedContent = $this->llmService->generateTextWithOpenRouter($enhancementPrompt, [
+            $enhancedContent = $this->llmService->generateText($enhancementPrompt, [
                 'model' => config('ai-models.purposes.pi_enhancement'),
                 'temperature' => config('ai-models.settings.pi_enhancement.temperature'),
                 'max_tokens' => config('ai-models.settings.pi_enhancement.max_tokens'),
@@ -289,8 +609,20 @@ class AdvisorGenerationService
             $secondaryPerspectives = 'CRITICAL PERSPECTIVE: '.$advisorData['secondary_perspectives'];
         }
 
+        $baseTemplateLength = strlen($baseTemplate);
+        
         return <<<PROMPT
 You are enhancing an advisor instruction template to trigger reasoning rather than safety responses.
+
+CRITICAL LENGTH CONSTRAINT: Final enhanced template must be <8000 characters total.
+Current template: {$baseTemplateLength} characters. Enhancement budget: remaining ~2000 characters.
+
+QUALITY-AWARE COMPRESSION RULES:
+1. Prioritize high-impact interventions that trigger deep thinking
+2. Cut verbose explanations, keep sharp insights
+3. Preserve signature patterns and contrarian perspectives
+4. Focus on behavioral triggers over theoretical background
+5. Compress without losing personality or effectiveness
 
 Advisor: {$advisorName}
 Expertise: {$expertise}
@@ -351,115 +683,301 @@ PROMPT;
     }
 
     /**
-     * Generate PK (Project Knowledge) content with Stage 1 improvements:
-     * - Enforced specificity and real examples
-     * - Pre-validation loop with quality scoring
-     * - Voice calibration and consistency checks
+     * Generate PK (Project Knowledge) content using structured output with retry logic
      */
-    protected function generatePK(array $advisorData, ?string $version = 'v1'): string
+    protected function generatePK(array $advisorData, array $mappedVars = [], int $maxAttempts = 3): string
     {
-        $templateName = $version ? "meta_pk_template_{$version}" : 'meta_pk_template';
+        $template = $this->loadPKTemplate();
+        $mustache = new \Mustache_Engine(['escape' => fn ($v) => $v]);
 
-        $template = $this->templateService->loadTemplate($templateName);
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                // Step 1: Build prompt with template and strict instructions
+                $prompt = $this->buildTemplateCompliancePrompt(
+                    $template,
+                    $advisorData,
+                    $attempt
+                );
 
-        // Map variables for PK template substitution
-        $mappedVars = [];
-        if (isset($advisorData['key']) && is_string($advisorData['key'])) {
-            $config = $this->configService->getAdvisorConfig($advisorData['key']);
-            $mappedVars = $this->configService->mapVariables($config);
-            $advisorData = array_merge($advisorData, $config);
+                // Step 2: Generate with structured output (JSON schema)
+                $schema = $this->buildVariableSchema($template);
+
+                $response = $this->llmService->generateText($prompt, [
+                    'model' => config('ai-models.purposes.pk_generation'),
+                    'temperature' => 0.7,
+                    'response_format' => $schema,  // Schema already includes the full structure
+                    'system_message' => 'You must return valid JSON with template variables only',
+                ]);
+
+                // Step 3: Parse JSON
+                $variables = json_decode($response, true);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    throw new \Exception('Invalid JSON: '.json_last_error_msg());
+                }
+
+                // Step 4: Render with Mustache
+                $rendered = $mustache->render($template, $variables);
+
+                // Step 4.5: Strip HTML comments from final output
+                $rendered = preg_replace('/<!--.*?-->/s', '', $rendered);
+                $rendered = preg_replace('/\n\s*\n\s*\n/', "\n\n", $rendered); // Clean up extra blank lines
+                
+                // Step 4.6: Fix invalid markdown - remove bold formatting from headers
+                $rendered = preg_replace('/^(#+)\s*\*\*(.*?)\*\*\s*$/m', '$1 $2', $rendered);
+                
+                $rendered = trim($rendered);
+
+                // Step 5: Validate compliance
+                $result = $this->templateComplianceValidator->validate($rendered);
+
+                if ($result['score'] >= 90) {
+                    Log::info('PK generation successful', [
+                        'compliance_score' => $result['score'],
+                        'attempt' => $attempt,
+                    ]);
+
+                    return $rendered;
+                }
+
+                // Log issues for debugging
+                Log::warning('Template compliance failed', [
+                    'attempt' => $attempt,
+                    'score' => $result['score'],
+                    'issues' => $result['issues'],
+                ]);
+
+            } catch (\Exception $e) {
+                Log::error('PK generation attempt failed', [
+                    'attempt' => $attempt,
+                    'error' => $e->getMessage(),
+                ]);
+
+                if ($attempt === $maxAttempts) {
+                    throw new TemplateComplianceException(
+                        "Failed to generate compliant PK after {$maxAttempts} attempts",
+                        ['last_error' => $e->getMessage()]
+                    );
+                }
+            }
+        }
+
+        throw new TemplateComplianceException('Max attempts reached without compliance');
+    }
+
+    /**
+     * Load the PK template from the filesystem
+     */
+    protected function loadPKTemplate(): string
+    {
+        return $this->templateService->loadTemplate('meta_pk_template_v1');
+    }
+
+    /**
+     * Build JSON schema for template variables
+     */
+    private function buildVariableSchema(string $template): array
+    {
+        // Extract all {{variables}} from template
+        preg_match_all('/\{\{([^}]+)\}\}/', $template, $matches);
+        $variables = array_unique($matches[1]);
+
+        $properties = [];
+        $required = [];
+
+        foreach ($variables as $variable) {
+            $required[] = $variable;
+
+            // Define specific requirements for known variables
+            switch ($variable) {
+                case 'voice_dna':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => 'One-line essence capturing the advisor\'s unique perspective',
+                    ];
+                    break;
+
+                case 'patterns_list':
+                case 'anti_patterns_list':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 300,
+                        'description' => '5-6 bullet points starting with "- "',
+                    ];
+                    break;
+
+                case 'voice_example_1':
+                case 'voice_example_2':
+                case 'voice_example_3':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 80,
+                        'description' => 'First-person quote with specific examples',
+                    ];
+                    break;
+
+                case 'analytical_tensions':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 300,
+                        'maxLength' => 1200,
+                        'description' => 'Paradoxes with evidence and uncomfortable truths',
+                    ];
+                    break;
+
+                case 'battle_tested_cases':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 400,
+                        'maxLength' => 1500,
+                        'description' => '3-4 specific examples of actual work with measurable results',
+                    ];
+                    break;
+
+                case 'daily_implementation':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 300,
+                        'description' => 'How they work day-to-day with specific tactical examples',
+                    ];
+                    break;
+
+                case 'advisor_name':
+                case 'template_version':
+                case 'generated_date':
+                case 'generation_id':
+                case 'date':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 1,
+                        'maxLength' => 100,
+                        'description' => 'Metadata field for '.$variable,
+                    ];
+                    break;
+
+                case 'topic_1':
+                case 'topic_2':
+                case 'topic_3':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 3,
+                        'maxLength' => 50,
+                        'description' => 'Topic area for voice example',
+                    ];
+                    break;
+
+                default:
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 10,
+                        'maxLength' => 250,
+                        'description' => 'Content for '.$variable,
+                    ];
+            }
+        }
+
+        return [
+            'type' => 'json_schema',
+            'json_schema' => [
+                'name' => 'pk_template_variables',
+                'strict' => true,  // CRITICAL: Enforces exact schema compliance
+                'schema' => [
+                    'type' => 'object',
+                    'properties' => $properties,
+                    'required' => $required,
+                    'additionalProperties' => false,  // CRITICAL: Prevents adding ANY extra fields
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Build prompt with escalating strictness based on attempt number
+     */
+    private function buildTemplateCompliancePrompt(
+        string $template,
+        array $advisorData,
+        int $attempt
+    ): string {
+        $advisorName = $advisorData['full_name'] ?? $advisorData['name'];
+
+        // Base instructions
+        $instructions = "Fill in ONLY the {{variables}} in this template for {$advisorName}.";
+
+        // Escalate strictness with each attempt
+        if ($attempt === 1) {
+            $instructions .= "\n\nRULES:
+1. Replace {{variable}} markers with appropriate content
+2. Return as JSON: {\"variable_name\": \"value\"}
+3. Do NOT modify any other text
+4. Use first-person voice for examples";
+        } elseif ($attempt === 2) {
+            $instructions .= "\n\nCRITICAL - YOU FAILED LAST TIME:
+1. You MUST ONLY replace {{variables}}
+2. You MUST return ONLY JSON
+3. You MUST NOT change ANY formatting
+4. You MUST preserve ALL emphasis markers
+5. FAILURE TO COMPLY WILL CAUSE REJECTION";
         } else {
-            $mappedVars = $this->configService->mapVariables($advisorData);
+            $instructions .= "\n\n⚠️ FINAL ATTEMPT - STRICT COMPLIANCE REQUIRED ⚠️
+YOU HAVE FAILED TWICE. THIS IS YOUR LAST CHANCE.
+
+MANDATORY REQUIREMENTS:
+- ONLY replace text between {{ and }}
+- Return PURE JSON: {\"variable\": \"value\"}
+- DO NOT add sections
+- DO NOT remove emphasis
+- DO NOT be creative with structure
+- JUST FILL IN THE VARIABLES
+
+IF YOU FAIL AGAIN, THE GENERATION WILL BE REJECTED.";
         }
 
-        $processedTemplate = $this->templateService->substituteVariables($template, $mappedVars);
+        // Extract variable list for clarity
+        preg_match_all('/\{\{([^}]+)\}\}/', $template, $matches);
+        $variables = array_unique($matches[1]);
 
-        // Extract voice patterns for calibration
-        $voicePatterns = $this->extractVoicePatterns($advisorData);
+        $instructions .= "\n\nVARIABLES TO FILL:\n".implode("\n", array_map(
+            fn ($v) => "- {$v}: ".$this->getVariableDescription($v),
+            $variables
+        ));
 
-        // Pre-validation loop: Try up to N times to get quality content
-        $bestContent = null;
-        $bestScore = 0;
-        $attempts = 0;
-        $maxAttempts = 1; // Single attempt - testing shows multiple attempts don't improve quality
+        $instructions .= "\n\nTEMPLATE:\n{$template}";
 
-        while ($attempts < $maxAttempts) {
-            $attempts++;
-            Log::info("PK generation attempt {$attempts}/{$maxAttempts}");
+        $instructions .= "\n\nADVISOR CONTEXT:\n".json_encode($advisorData, JSON_PRETTY_PRINT);
 
-            $prompt = $this->buildEnhancedGenerationPrompt(
-                'Project Knowledge (PK)',
-                $processedTemplate,
-                $advisorData,
-                $voicePatterns
-            );
+        return $instructions;
+    }
 
-            // Use configured model for PK generation
-            $model = config('ai-models.purposes.pk_generation');
-            // Determine temperature based on advisor type
-            // Technical/factual advisors need lower temp for accuracy
-            // Creative/controversial advisors can handle higher temp
-            $temperature = match ($advisorData['key'] ?? '') {
-                'henderson' => 0.7,  // Technical precision needed
-                'halbert' => 0.7,    // Copywriting needs accuracy
-                'hormozi' => 0.8,    // Business data focus
-                'bogusky' => 0.85,   // Creative can be higher
-                default => 0.8       // Safe default
-            };
-
-            $generatedContent = $this->llmService->generateTextWithOpenRouter($prompt, [
-                'model' => $model,
-                'temperature' => $temperature,
-                'max_tokens' => config('ai-models.settings.pk_generation.max_tokens'),
-                'system_message' => 'You are a brutally honest business advisor who reveals uncomfortable truths through analytical reasoning. Name specific companies and people. Explain why popular advice fails.',
-            ]);
-
-            // Validate and score the content
-            $cleanedContent = $this->validateAndCleanContent($generatedContent, 'PK');
-
-            // Check for placeholder text
-            if ($this->containsPlaceholders($cleanedContent)) {
-                Log::warning("PK contains placeholders, attempt {$attempts}");
-
-                continue;
-            }
-
-            // Score the content quality
-            $pkScore = $this->qualityService->scorePK($cleanedContent);
-            $scorePercentage = $pkScore['percentage'] ?? 0;
-
-            Log::info("PK quality score: {$scorePercentage}%", [
-                'attempt' => $attempts,
-                'issues' => count($pkScore['issues'] ?? []),
-            ]);
-
-            // Keep best attempt
-            if ($scorePercentage > $bestScore) {
-                $bestContent = $cleanedContent;
-                $bestScore = $scorePercentage;
-            }
-
-            // Accept if quality threshold met
-            if ($scorePercentage >= 80) {
-                Log::info("PK quality threshold met at {$scorePercentage}%");
-                break;
-            }
-        }
-
-        if (! $bestContent) {
-            throw new \Exception("Failed to generate acceptable PK content after {$maxAttempts} attempts");
-        }
-
-        // Inject model and quality information into metadata
-        $bestContent = $this->injectModelMetadata($bestContent, $model);
-        $bestContent = $this->injectQualityMetadata($bestContent, $bestScore, $attempts);
-
-        Log::info('PK generation completed', [
-            'final_score' => $bestScore,
-            'attempts' => $attempts,
-        ]);
-
-        return $bestContent;
+    /**
+     * Get description for a template variable
+     */
+    private function getVariableDescription(string $variable): string
+    {
+        return match ($variable) {
+            'voice_dna' => 'One-line essence capturing their unique perspective',
+            'voice_example_1', 'voice_example_2', 'voice_example_3' => 'First-person quote with specific examples',
+            'patterns_list' => '5-6 bullet points of consistent behaviors',
+            'anti_patterns_list' => '5-6 specific things they never accept',
+            'analytical_tensions' => 'Paradoxes with evidence and uncomfortable truths',
+            'battle_tested_cases' => '3-4 specific examples of actual work with results',
+            'daily_implementation' => 'How they work day-to-day with tactical examples',
+            'challenge_threshold' => 'How quickly/aggressively they push back on vague ideas',
+            'never_accept_list' => 'Vague statements that trigger pushback',
+            'evidence_required_list' => 'Claims that need proof',
+            'format_preference' => 'How they structure responses',
+            'advisor_name' => 'Full name of the advisor',
+            'template_version' => 'Template version number',
+            'generated_date' => 'Date of generation',
+            'generation_id' => 'Unique generation identifier',
+            'topic_1', 'topic_2', 'topic_3' => 'Topic area for voice example',
+            'date' => 'Current date',
+            default => "Content for {$variable}"
+        };
     }
 
     /**
@@ -549,25 +1067,25 @@ PROMPT;
         return $positions;
     }
 
-
     /**
      * Get dynamic position constraints from researched positions
      */
-    protected function getKnownAdvisorPositions(string $advisorKey): string
+    protected function getKnownAdvisorPositions(string $advisorSlug): string
     {
         // Get positions directly from database
-        $cached = \App\Models\AdvisorPosition::where('advisor_key', $advisorKey)->first();
+        $cached = \App\Models\AdvisorPosition::where('advisor_slug', $advisorSlug)->first();
 
-        if (!$cached) {
+        if (! $cached) {
             Log::warning('FACT-CHECK: No researched positions found in database', [
-                'advisor' => $advisorKey,
-                'suggestion' => 'Run: php artisan advisor:research ' . $advisorKey,
+                'advisor' => $advisorSlug,
+                'suggestion' => 'Run: php artisan advisor:research '.$advisorSlug,
             ]);
+
             return 'Maintain internal consistency. Never contradict your own stated beliefs.';
         }
 
         Log::info('FACT-CHECK: Using cached positions from database', [
-            'advisor' => $advisorKey,
+            'advisor' => $advisorSlug,
             'cached_at' => $cached->created_at,
         ]);
 
@@ -603,8 +1121,8 @@ CONSTRAINTS;
         $keyPhrases = $advisorData['key_phrases_or_terminology'] ?? '';
 
         // Load advisor-specific tensions
-        $advisorKey = $advisorData['key'] ?? 'default';
-        $tensionsConfig = config("advisor-tensions.{$advisorKey}", []);
+        $advisorSlug = $advisorData['slug'] ?? 'default';
+        $tensionsConfig = config("advisor-tensions.{$advisorSlug}", []);
         $tensions = $tensionsConfig['tensions'] ?? [
             'Challenge conventional wisdom in your field',
             'Question accepted best practices',
@@ -619,7 +1137,7 @@ CONSTRAINTS;
         }
 
         // Add known positions to prevent contradictions
-        $knownPositions = $this->getKnownAdvisorPositions($advisorKey);
+        $knownPositions = $this->getKnownAdvisorPositions($advisorSlug);
 
         // Log the constraints we're sending
         Log::info('PK GENERATION: Constraints being sent to Grok', [
@@ -815,7 +1333,6 @@ PROMPT;
          * full_name of the advisor? (e.g. AlexBogusky_PI.md, AlexBogusky_PK.md)
          * This would allow organizing them all in the same folder and avoid confusion
          * when used in councils or other contexts.
-         *
          */
         $piContent = Storage::get("{$basePath}/PI.md");
         $pkContent = Storage::get("{$basePath}/PK.md");
@@ -1003,13 +1520,13 @@ YAML;
     /**
      * Generate multiple advisors in batch
      */
-    public function generateBatch(array $advisorsData, ?string $version = 'v1'): array
+    public function generateBatch(array $advisorsData, bool $exportFiles = false): array
     {
         $results = [];
 
         foreach ($advisorsData as $advisorData) {
             try {
-                $results[] = $this->generateAdvisor($advisorData, $version);
+                $results[] = $this->generateAdvisor($advisorData, null, $exportFiles);
             } catch (\Exception $e) {
                 $results[] = [
                     'success' => false,
@@ -1020,5 +1537,47 @@ YAML;
         }
 
         return $results;
+    }
+
+    /**
+     * Export advisor files to local storage for development testing
+     */
+    private function exportToFiles($advisorData, $piContent, $pkContent, $metadata): array
+    {
+        // Use the slug for directory naming (e.g., 'alex-bogusky', 'alex-hormozi')
+        $advisorSlug = $advisorData['slug'] ?? Str::slug($advisorData['name'] ?? 'unknown');
+        $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown';
+        $pascalName = str_replace(' ', '', ucwords(str_replace('-', ' ', $advisorName)));
+        $timestamp = now()->format('Y-m-d');
+
+        // Use provided job ID or fallback to uniqid for synchronous runs
+        $jobId = $metadata['job_id'] ?? $metadata['generation_id'] ?? uniqid();
+
+        // Don't prefix with 'advisors/' - the disk already points there
+        // Use advisor slug as the directory name (e.g., 'alex-bogusky')
+        $basePath = "{$advisorSlug}/{$timestamp}-job-{$jobId}";
+        Storage::disk('advisors')->makeDirectory($basePath);
+
+        // Use correct naming: AlexBogusky_PI.md, AlexBogusky_PK.md
+        $piPath = "{$basePath}/{$pascalName}_PI.md";
+        $pkPath = "{$basePath}/{$pascalName}_PK.md";
+        $metadataPath = "{$basePath}/metadata.json";
+
+        Storage::disk('advisors')->put($piPath, $piContent);
+        Storage::disk('advisors')->put($pkPath, $pkContent);
+        Storage::disk('advisors')->put($metadataPath, json_encode($metadata, JSON_PRETTY_PRINT));
+
+        Log::info('Files exported to storage', [
+            'base_path' => $basePath,
+            'pi_file' => $piPath,
+            'pk_file' => $pkPath,
+        ]);
+
+        return [
+            'pi' => $piPath,
+            'pk' => $pkPath,
+            'metadata' => $metadataPath,
+            'base_path' => $basePath,
+        ];
     }
 }
