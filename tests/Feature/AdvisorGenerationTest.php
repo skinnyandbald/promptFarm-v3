@@ -7,6 +7,7 @@ use App\Services\AdvisorGenerationService;
 use App\Services\LLMService;
 use App\Services\TemplateService;
 use App\Services\Validation\AdvisorQualityService;
+use App\Services\Validation\AIEmbodimentQualityScorer;
 use App\Services\Validation\TemplateComplianceValidator;
 use Illuminate\Support\Facades\Storage;
 use Mockery;
@@ -24,6 +25,8 @@ class AdvisorGenerationTest extends TestCase
 
     protected $mockQualityService;
 
+    protected $mockAIEmbodimentScorer;
+
     protected $mockTemplateComplianceValidator;
 
     protected function setUp(): void
@@ -38,6 +41,7 @@ class AdvisorGenerationTest extends TestCase
         $this->mockTemplateService = Mockery::mock(TemplateService::class);
         $this->mockConfigService = Mockery::mock(AdvisorConfigService::class);
         $this->mockQualityService = Mockery::mock(AdvisorQualityService::class);
+        $this->mockAIEmbodimentScorer = Mockery::mock(AIEmbodimentQualityScorer::class);
         $this->mockTemplateComplianceValidator = Mockery::mock(TemplateComplianceValidator::class);
 
         // Bind mocks to container
@@ -45,6 +49,7 @@ class AdvisorGenerationTest extends TestCase
         $this->app->instance(TemplateService::class, $this->mockTemplateService);
         $this->app->instance(AdvisorConfigService::class, $this->mockConfigService);
         $this->app->instance(AdvisorQualityService::class, $this->mockQualityService);
+        $this->app->instance(AIEmbodimentQualityScorer::class, $this->mockAIEmbodimentScorer);
         $this->app->instance(TemplateComplianceValidator::class, $this->mockTemplateComplianceValidator);
 
         // Create service with mocks
@@ -53,7 +58,8 @@ class AdvisorGenerationTest extends TestCase
             $this->mockLLMService,
             $this->mockConfigService,
             $this->mockQualityService,
-            $this->mockTemplateComplianceValidator
+            $this->mockTemplateComplianceValidator,
+            $this->mockAIEmbodimentScorer
         );
 
         // Setup storage fake
@@ -173,6 +179,19 @@ class AdvisorGenerationTest extends TestCase
             ->atLeast(1)
             ->andReturn(['score' => 95]);
 
+        // Mock AI embodiment scoring
+        $this->mockAIEmbodimentScorer
+            ->shouldReceive('scoreAIEmbodiment')
+            ->once()
+            ->andReturn([
+                'total_score' => 85, 
+                'valid' => true,
+                'breakdown' => [
+                    'static_analysis' => ['score' => 30],
+                    'semantic_analysis' => ['score' => 55]
+                ]
+            ]);
+
         // Act
         $result = $this->generationService->generateAdvisor($advisorData);
 
@@ -282,6 +301,19 @@ class AdvisorGenerationTest extends TestCase
             ->atLeast(1)
             ->andReturn(['score' => 95]);
 
+        // Mock AI embodiment scoring
+        $this->mockAIEmbodimentScorer
+            ->shouldReceive('scoreAIEmbodiment')
+            ->once()
+            ->andReturn([
+                'total_score' => 85, 
+                'valid' => true,
+                'breakdown' => [
+                    'static_analysis' => ['score' => 30],
+                    'semantic_analysis' => ['score' => 55]
+                ]
+            ]);
+
         // Act
         $result = $this->generationService->generateAdvisor($advisorData);
 
@@ -382,6 +414,19 @@ class AdvisorGenerationTest extends TestCase
             ->atLeast(1)
             ->andReturn(['score' => 95]);
 
+        // Mock AI embodiment scoring
+        $this->mockAIEmbodimentScorer
+            ->shouldReceive('scoreAIEmbodiment')
+            ->once()
+            ->andReturn([
+                'total_score' => 85, 
+                'valid' => true,
+                'breakdown' => [
+                    'static_analysis' => ['score' => 30],
+                    'semantic_analysis' => ['score' => 55]
+                ]
+            ]);
+
         // Act
         $result = $this->generationService->generateAdvisor($advisorData);
 
@@ -464,6 +509,19 @@ class AdvisorGenerationTest extends TestCase
             ->shouldReceive('validate')
             ->atLeast(1)
             ->andReturn(['score' => 95]);
+
+        // Mock AI embodiment scoring
+        $this->mockAIEmbodimentScorer
+            ->shouldReceive('scoreAIEmbodiment')
+            ->once()
+            ->andReturn([
+                'total_score' => 85, 
+                'valid' => true,
+                'breakdown' => [
+                    'static_analysis' => ['score' => 30],
+                    'semantic_analysis' => ['score' => 55]
+                ]
+            ]);
 
         // Act - Test file export functionality
         $result = $this->generationService->generateAdvisor($advisorData, null, true);
@@ -590,6 +648,19 @@ class AdvisorGenerationTest extends TestCase
             ->shouldReceive('validate')
             ->atLeast(1)
             ->andReturn(['score' => 95]);
+
+        // Mock AI embodiment scoring
+        $this->mockAIEmbodimentScorer
+            ->shouldReceive('scoreAIEmbodiment')
+            ->once()
+            ->andReturn([
+                'total_score' => 85, 
+                'valid' => true,
+                'breakdown' => [
+                    'static_analysis' => ['score' => 30],
+                    'semantic_analysis' => ['score' => 55]
+                ]
+            ]);
 
         // Act
         $result = $this->generationService->generateAdvisor($advisorData);
