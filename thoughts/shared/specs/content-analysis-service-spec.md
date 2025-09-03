@@ -93,7 +93,7 @@ public function extractCompanies(string $pkContent): array
         'count' => 12,
         'companies' => [
             'Apple' => ['context' => 'Think Different campaign', 'year' => 1997],
-            'Dominos' => ['context' => 'Pizza Tracker innovation', 'year' => 2009],
+            'Domino\'s' => ['context' => 'Pizza Tracker innovation', 'year' => 2009],
         ],
         'with_metrics' => 8, // how many include specific numbers
     ];
@@ -183,30 +183,32 @@ $enhancedPrompt = $this->injectPatterns($basePrompt, $successfulPatterns);
 ## Database Schema
 
 ```sql
--- Store extracted elements for analysis
+-- Store extracted elements for analysis (SQLite syntax)
 CREATE TABLE content_elements (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id VARCHAR(255) NOT NULL,
-    element_type VARCHAR(50) NOT NULL, -- tension_trigger, company_mention, etc.
+    conversation_id TEXT NOT NULL,
+    element_type TEXT NOT NULL, -- tension_trigger, company_mention, etc.
     element_value TEXT NOT NULL,
     element_context TEXT,
-    element_score FLOAT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_conversation (conversation_id),
-    INDEX idx_type (element_type)
+    element_score REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX idx_conversation ON content_elements(conversation_id);
+CREATE INDEX idx_type ON content_elements(element_type);
 
 -- Track element performance
 CREATE TABLE element_performance (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    element_type VARCHAR(50) NOT NULL,
+    element_type TEXT NOT NULL,
     element_value TEXT NOT NULL,
     success_count INTEGER DEFAULT 0,
     failure_count INTEGER DEFAULT 0,
-    avg_quality_score FLOAT,
-    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_element (element_type, element_value(255))
+    avg_quality_score REAL,
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX unique_element ON element_performance(element_type, element_value);
 ```
 
 ## Usage Examples

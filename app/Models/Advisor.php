@@ -99,4 +99,12 @@ class Advisor extends Model
             'unique_perspectives_or_contrarian_stances' => $this->unique_perspectives_or_contrarian_stances,
         ];
     }
+
+    /**
+     * Get the advisor positions for this advisor
+     */
+    public function advisorPositions()
+    {
+        return $this->hasMany(AdvisorPosition::class, 'advisor_slug', 'slug');
+    }
 }

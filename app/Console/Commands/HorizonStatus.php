@@ -224,7 +224,7 @@ class HorizonStatus extends Command
 
             $rows[] = [
                 $job->id,
-                $job->advisor->slug ?? 'N/A',
+                $job->advisor?->slug ?? 'N/A',
                 $statusIcon.' '.$job->status,
                 $job->progress.'%',
                 substr($job->current_step ?? 'N/A', 0, 30),

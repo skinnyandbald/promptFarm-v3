@@ -18,4 +18,12 @@ class AdvisorPosition extends Model
         'metadata' => 'array',
         'research_temperature' => 'float',
     ];
+
+    /**
+     * Get the advisor that this position belongs to
+     */
+    public function advisor()
+    {
+        return $this->belongsTo(Advisor::class, 'advisor_slug', 'slug');
+    }
 }

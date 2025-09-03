@@ -31,7 +31,7 @@ class GenerateAdvisor extends Command
         parent::__construct();
     }
 
-    public function handle()
+    public function handle(): int
     {
         $all = $this->option('all');
         $poll = $this->option('poll');
@@ -41,7 +41,7 @@ class GenerateAdvisor extends Command
 
         if ($all) {
             // Generate all advisors from database
-            $advisorsToGenerate = Advisor::pluck('slug')->unique()->toArray();
+            $advisorsToGenerate = Advisor::query()->pluck('slug')->unique()->toArray();
 
             if (empty($advisorsToGenerate)) {
                 $this->error('No advisors found in database!');
@@ -92,7 +92,7 @@ class GenerateAdvisor extends Command
     protected function dispatchAdvisorGeneration(string $name): string
     {
         try {
-            $advisor = Advisor::where('slug', $name)->first();
+            $advisor = Advisor::query()->where('slug', $name)->first();
 
             if (! $advisor) {
                 $this->error("❌ Advisor not found: {$name}");
@@ -101,7 +101,7 @@ class GenerateAdvisor extends Command
             }
 
             // Create job record for tracking
-            $generationJob = AdvisorGenerationJob::create([
+            $generationJob = AdvisorGenerationJob::query()->create([
                 'advisor_id' => $advisor->id,
                 'status' => AdvisorGenerationJob::STATUS_PENDING,
                 'progress' => 0,
@@ -159,14 +159,14 @@ class GenerateAdvisor extends Command
     {
         try {
             // Find the most recent job for this advisor
-            $advisor = Advisor::where('slug', $name)->first();
+            $advisor = Advisor::query()->where('slug', $name)->first();
             if (! $advisor) {
                 $this->error("❌ Advisor not found: {$name}");
 
                 return Command::FAILURE;
             }
 
-            $job = AdvisorGenerationJob::where('advisor_id', $advisor->id)
+            $job = AdvisorGenerationJob::query()->where('advisor_id', $advisor->id)
                 ->recent()
                 ->first();
 

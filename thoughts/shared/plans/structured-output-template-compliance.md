@@ -100,9 +100,9 @@ if (isset($options['response_format'])) {
 ```
 
 ### Success Criteria:
-- [ ] Mustache installed
-- [ ] JSON mode parameter passes to OpenRouter
-- [ ] Non-JSON models throw exception
+- [x] Mustache installed
+- [x] JSON mode parameter passes to OpenRouter
+- [x] Non-JSON models throw exception
 
 ---
 

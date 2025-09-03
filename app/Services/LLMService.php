@@ -14,8 +14,6 @@ class LLMService
 
     protected int $retryDelay = 2;
 
-    protected $client;
-
     protected GuzzleClient $httpClient;
 
     public function __construct()
@@ -189,67 +187,6 @@ class LLMService
     }
 
     /**
-     * Generate text using standard chat completions
-     */
-    protected function generateWithChatCompletions(string $prompt, array $options = []): string
-    {
-        $model = $options['model'] ?? config('ai-models.purposes.fallback');
-        $maxTokens = $options['max_tokens'] ?? $this->config['max_tokens'] ?? 100000;
-        $temperature = $options['temperature'] ?? $this->config['temperature'] ?? 0.7;
-
-        $attempt = 0;
-        $lastException = null;
-
-        while ($attempt < $this->maxRetries) {
-            try {
-                Log::info('LLM API Call', [
-                    'model' => $model,
-                    'prompt_length' => strlen($prompt),
-                    'attempt' => $attempt + 1,
-                ]);
-
-                $response = $this->client->chat()->create([
-                    'model' => $model,
-                    'messages' => [
-                        ['role' => 'user', 'content' => $prompt],
-                    ],
-                    'max_tokens' => $maxTokens,
-                    'temperature' => $temperature,
-                ]);
-
-                $content = $response->choices[0]->message->content;
-
-                Log::info('LLM API Response', [
-                    'model' => $model,
-                    'response_length' => strlen($content),
-                    'finish_reason' => $response->choices[0]->finishReason ?? 'unknown',
-                ]);
-
-                return $content;
-
-            } catch (\Exception $e) {
-                $lastException = $e;
-                $attempt++;
-
-                Log::warning('LLM API Error', [
-                    'error' => $e->getMessage(),
-                    'attempt' => $attempt,
-                    'model' => $model,
-                ]);
-
-                if ($attempt < $this->maxRetries) {
-                    sleep($this->retryDelay * $attempt);
-                }
-            }
-        }
-
-        throw new \Exception(
-            "Failed to generate text after {$this->maxRetries} attempts: ".
-            ($lastException ? $lastException->getMessage() : 'Unknown error')
-        );
-    }
-
-    /**
      * Generate completion for a given context
      */
     public function generateCompletion(string $context, string $instruction, array $options = []): string
@@ -273,169 +210,6 @@ Instruction:
 
 Please provide a comprehensive response based on the context and instruction above.
 PROMPT;
-    }
-
-    /**
-     * Generate content with system message for role-playing
-     */
-    public function generateWithSystemMessage(string $systemMessage, string $userPrompt, array $options = []): string
-    {
-        $model = $options['model'] ?? $this->config['model'] ?? config('ai-models.purposes.fallback');
-
-        // Check if this is a deep research model
-        if (str_contains($model, 'deep-research')) {
-            // For deep research, combine system message with user prompt
-            $combinedPrompt = "System Context: {$systemMessage}\n\nUser Request: {$userPrompt}";
-
-            return $this->generateWithDeepResearch($combinedPrompt, $options);
-        }
-
-        // For standard models, use separate system and user messages
-        $maxTokens = $options['max_tokens'] ?? $this->config['max_tokens'] ?? 100000;
-        $temperature = $options['temperature'] ?? $this->config['temperature'] ?? 0.7;
-
-        $attempt = 0;
-        $lastException = null;
-
-        while ($attempt < $this->maxRetries) {
-            try {
-                Log::info('LLM API Call with System Message', [
-                    'model' => $model,
-                    'system_message_length' => strlen($systemMessage),
-                    'user_prompt_length' => strlen($userPrompt),
-                    'attempt' => $attempt + 1,
-                ]);
-
-                $response = $this->client->chat()->create([
-                    'model' => $model,
-                    'messages' => [
-                        ['role' => 'system', 'content' => $systemMessage],
-                        ['role' => 'user', 'content' => $userPrompt],
-                    ],
-                    'max_tokens' => $maxTokens,
-                    'temperature' => $temperature,
-                ]);
-
-                $content = $response->choices[0]->message->content;
-
-                Log::info('LLM API Response with System Message', [
-                    'model' => $model,
-                    'response_length' => strlen($content),
-                    'finish_reason' => $response->choices[0]->finishReason ?? 'unknown',
-                ]);
-
-                return $content;
-
-            } catch (\Exception $e) {
-                $lastException = $e;
-                $attempt++;
-
-                Log::warning('LLM API Error with System Message', [
-                    'error' => $e->getMessage(),
-                    'attempt' => $attempt,
-                    'model' => $model,
-                ]);
-
-                if ($attempt < $this->maxRetries) {
-                    sleep($this->retryDelay * $attempt);
-                }
-            }
-        }
-
-        throw new \Exception(
-            "Failed to generate text with system message after {$this->maxRetries} attempts: ".
-            ($lastException ? $lastException->getMessage() : 'Unknown error')
-        );
-    }
-
-    /**
-     * Stream text generation for real-time responses
-     */
-    public function streamText(string $prompt, callable $callback, array $options = []): void
-    {
-        $model = $options['model'] ?? $this->config['model'] ?? config('ai-models.purposes.fallback');
-
-        // Streaming is not supported for deep research models
-        if (str_contains($model, 'deep-research')) {
-            throw new \Exception('Streaming is not supported for deep research models');
-        }
-
-        $maxTokens = $options['max_tokens'] ?? $this->config['max_tokens'] ?? 100000;
-        $temperature = $options['temperature'] ?? $this->config['temperature'] ?? 0.7;
-
-        try {
-            Log::info('LLM API Stream Call', [
-                'model' => $model,
-                'prompt_length' => strlen($prompt),
-            ]);
-
-            $stream = $this->client->chat()->createStreamed([
-                'model' => $model,
-                'messages' => [
-                    ['role' => 'user', 'content' => $prompt],
-                ],
-                'max_tokens' => $maxTokens,
-                'temperature' => $temperature,
-            ]);
-
-            foreach ($stream as $response) {
-                if (isset($response->choices[0]->delta->content)) {
-                    $callback($response->choices[0]->delta->content);
-                }
-            }
-
-            Log::info('LLM API Stream Complete', [
-                'model' => $model,
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('LLM API Stream Error', [
-                'error' => $e->getMessage(),
-                'model' => $model,
-            ]);
-
-            throw $e;
-        }
-    }
-
-    /**
-     * Validate API configuration
-     */
-    public function validateConfiguration(): bool
-    {
-        if (empty($this->config['api_key'])) {
-            throw new \Exception('OpenAI API key is not configured');
-        }
-
-        try {
-            $response = $this->client->models()->list();
-
-            return ! empty($response->data);
-        } catch (\Exception $e) {
-            Log::error('OpenAI Configuration Validation Failed', [
-                'error' => $e->getMessage(),
-            ]);
-
-            return false;
-        }
-    }
-
-    /**
-     * Get available models
-     */
-    public function getAvailableModels(): array
-    {
-        try {
-            $response = $this->client->models()->list();
-
-            return collect($response->data)->pluck('id')->toArray();
-        } catch (\Exception $e) {
-            Log::error('Failed to fetch available models', [
-                'error' => $e->getMessage(),
-            ]);
-
-            return [];
-        }
     }
 
     /**
@@ -472,22 +246,35 @@ PROMPT;
                     'attempt' => $attempt + 1,
                 ]);
 
-                $response = $this->httpClient->post('https://openrouter.ai/api/v1/chat/completions', [
-                    'json' => [
-                        'model' => $model,
-                        'messages' => [
-                            [
-                                'role' => 'system',
-                                'content' => $systemMessage,
-                            ],
-                            [
-                                'role' => 'user',
-                                'content' => $prompt,
-                            ],
+                $payload = [
+                    'model' => $model,
+                    'messages' => [
+                        [
+                            'role' => 'system',
+                            'content' => $systemMessage,
                         ],
-                        'temperature' => $temperature,
-                        'max_tokens' => $maxTokens,
+                        [
+                            'role' => 'user',
+                            'content' => $prompt,
+                        ],
                     ],
+                    'temperature' => $temperature,
+                    'max_tokens' => $maxTokens,
+                ];
+
+                // ADD THIS: Structured output support
+                if (isset($options['response_format'])) {
+                    // Validate model supports JSON mode
+                    $capabilities = config("ai-models.capabilities.{$model}");
+                    if (! ($capabilities['json_mode'] ?? false)) {
+                        throw new \Exception("Model {$model} does not support JSON mode required for template compliance");
+                    }
+
+                    $payload['response_format'] = $options['response_format'];
+                }
+
+                $response = $this->httpClient->post('https://openrouter.ai/api/v1/chat/completions', [
+                    'json' => $payload,
                     'headers' => [
                         'Authorization' => 'Bearer '.$apiKey,
                         'HTTP-Referer' => config('app.url'),
@@ -504,6 +291,18 @@ PROMPT;
                 }
 
                 $content = $result['choices'][0]['message']['content'];
+
+                // After getting response, validate JSON if structured output was requested
+                if (isset($options['response_format'])) {
+                    $jsonTest = json_decode($content, true);
+                    if (json_last_error() !== JSON_ERROR_NONE) {
+                        Log::error('Structured output returned invalid JSON', [
+                            'error' => json_last_error_msg(),
+                            'content' => substr($content, 0, 500),
+                        ]);
+                        throw new \Exception('Model returned invalid JSON despite structured output mode');
+                    }
+                }
 
                 Log::info('OpenRouter API Response', [
                     'model' => $model,
