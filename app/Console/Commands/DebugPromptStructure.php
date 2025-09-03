@@ -13,9 +13,6 @@ class DebugPromptStructure extends Command
 
     protected $description = 'Debug which prompt structures cause formalization';
 
-    /**
-     * @var array<string, string>
-     */
     protected array $testPrompts = [
         'original-v2' => 'Original V2 (No Voice Anchor, No Framework)',
         'test-a' => 'Test A (Voice Anchor + Comm Rules, NO Framework)',
@@ -126,9 +123,6 @@ class DebugPromptStructure extends Command
         return $response->json()['choices'][0]['message']['content'] ?? '';
     }
 
-    /**
-     * @return array<string, int>
-     */
     protected function analyzeResponse(string $response): array
     {
         $analysis = [];
@@ -177,9 +171,6 @@ class DebugPromptStructure extends Command
         return $analysis;
     }
 
-    /**
-     * @param  array<string, array<string, mixed>>  $results
-     */
     protected function compareResults(array $results): void
     {
         $comparison = [];

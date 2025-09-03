@@ -140,9 +140,6 @@ class GenerateAdvisor extends Command
     /**
      * Display quality scores in a formatted way
      */
-    /**
-     * @param  array<string, mixed>  $quality
-     */
     protected function displayQualityScores(array $quality): void
     {
         $status = $quality['summary']['status'];
@@ -255,9 +252,6 @@ class GenerateAdvisor extends Command
     /**
      * Display detailed validation feedback
      */
-    /**
-     * @param  array<string, mixed>  $quality
-     */
     protected function displayValidationDetails(array $quality): void
     {
         $this->info('=== Detailed Validation Report ===');
@@ -306,9 +300,6 @@ class GenerateAdvisor extends Command
 
     /**
      * Display summary of all advisor generation results
-     */
-    /**
-     * @param  array<string, mixed>  $results
      */
     protected function showAllGenerationSummary(array $results): void
     {
