@@ -223,16 +223,12 @@ class AdvisorGenerationService
      */
     protected function enhancePIWithExamples(string $baseTemplate, array $advisorData): string
     {
-        // Check if template has HTML comments that need processing
+        // Extract HTML comments for logging/debugging purposes
         $htmlComments = $this->templateService->extractHTMLComments($baseTemplate);
-        if (empty($htmlComments)) {
-            Log::info('No HTML comments to process, returning base template');
-
-            return $baseTemplate;
-        }
-
+        
         Log::info('enhancePIWithExamples called', [
             'advisor_data_keys' => array_keys($advisorData),
+            'base_template_length' => strlen($baseTemplate),
             'html_comments_found' => count($htmlComments),
         ]);
 
