@@ -91,15 +91,7 @@ class AdvisorGenerationTest extends TestCase
             ->twice()
             ->andReturnValues([$template, $template]);
 
-        $this->mockTemplateService
-            ->shouldReceive('extractVariables')
-            ->once()
-            ->andReturn(['advisor_name', 'core_expertise']);
 
-        $this->mockTemplateService
-            ->shouldReceive('substituteVariables')
-            ->once() // Only called once for PI, PK uses Mustache directly
-            ->andReturn('Hello Test Expert Advisor, your expertise is Strategic Advisory');
 
         $this->mockTemplateService
             ->shouldReceive('extractHTMLComments')
@@ -119,19 +111,40 @@ class AdvisorGenerationTest extends TestCase
             })
             ->andReturnUsing(function($prompt, $options = []) {
                 if (isset($options['response_format'])) {
-                    // Return valid JSON for structured output
-                    return json_encode([
-                        'voice_dna' => 'A strategic advisor who challenges conventional thinking and demands evidence-based decisions',
-                        'voice_example_1' => 'When I worked with a Fortune 500 client, I discovered their biggest obstacle wasnt what they thought - it was their assumption that growth required complexity. We simplified their operations and saw 40% efficiency gains.',
-                        'patterns_list' => '- Always question the obvious solution\n- Demand specific metrics before making decisions\n- Challenge assumptions with evidence\n- Focus on measurable outcomes\n- Seek root causes, not symptoms',
-                        'anti_patterns_list' => '- Never accept vague objectives without clarification\n- Avoid solutions looking for problems\n- Dont ignore historical data and precedents\n- Never overcomplicate simple problems\n- Dont underestimate implementation complexity',
-                        'analytical_tensions' => 'The paradox of seeking simplicity while acknowledging complexity creates the most powerful insights.',
-                        'topic_1' => 'Strategic Planning',
-                        'topic_2' => 'Decision Making', 
-                        'topic_3' => 'Problem Solving',
-                        'advisor_name' => 'Test Expert Advisor',
-                        'date' => date('Y-m-d')
-                    ]);
+                    // Check if this is PI or PK generation based on prompt content
+                    if (strpos($prompt, 'Project Instructions') !== false || strpos($prompt, 'template variables') !== false) {
+                        // Return JSON for PI variable generation
+                        return json_encode([
+                            'chain_of_thought' => 'I think step by step to analyze problems systematically and develop evidence-based solutions.',
+                            'few_shot_examples' => 'When I worked with TechCorp, I implemented a strategic transformation that resulted in 40% efficiency gains.',
+                            'retrieval_context' => 'Always reference specific case studies and documented outcomes from past engagements.',
+                            'constitutional_constraints' => 'Never provide advice without evidence. Always demand specific metrics and measurable outcomes.',
+                            'operating_principles' => '- I always start with data-driven analysis\n- I challenge assumptions with evidence\n- I focus on measurable outcomes\n- I build sustainable solutions',
+                            'communication_style' => 'Direct, evidence-based, and results-oriented',
+                            'decision_making_approach' => 'Evidence-first methodology with measurable outcomes',
+                            'key_phrases' => 'What\'s the evidence?, Show me the data, Measurable outcomes',
+                            'emotional_characteristics' => 'Confident, analytical, challenging',
+                            'unique_perspectives' => 'Complexity often masks simple solutions',
+                            'core_expertise' => 'Strategic transformation and organizational change',
+                            'related_expertise' => 'Change management and process optimization',
+                            'scenarios_to_defer' => 'Technical implementation details and legal compliance',
+                            'explicit_limitations' => 'Financial modeling and regulatory compliance'
+                        ]);
+                    } else {
+                        // Return JSON for PK generation
+                        return json_encode([
+                            'voice_dna' => 'A strategic advisor who challenges conventional thinking and demands evidence-based decisions',
+                            'voice_example_1' => 'When I worked with a Fortune 500 client, I discovered their biggest obstacle wasnt what they thought - it was their assumption that growth required complexity. We simplified their operations and saw 40% efficiency gains.',
+                            'patterns_list' => '- Always question the obvious solution\n- Demand specific metrics before making decisions\n- Challenge assumptions with evidence\n- Focus on measurable outcomes\n- Seek root causes, not symptoms',
+                            'anti_patterns_list' => '- Never accept vague objectives without clarification\n- Avoid solutions looking for problems\n- Dont ignore historical data and precedents\n- Never overcomplicate simple problems\n- Dont underestimate implementation complexity',
+                            'analytical_tensions' => 'The paradox of seeking simplicity while acknowledging complexity creates the most powerful insights.',
+                            'topic_1' => 'Strategic Planning',
+                            'topic_2' => 'Decision Making', 
+                            'topic_3' => 'Problem Solving',
+                            'advisor_name' => 'Test Expert Advisor',
+                            'date' => date('Y-m-d')
+                        ]);
+                    }
                 } else {
                     // Return text for PI enhancement
                     return str_repeat('Generated content with enough text to pass validation and length checks for the advisor generation service. This content is specifically designed to be long enough to meet all validation requirements and provide meaningful test data. ', 15);
