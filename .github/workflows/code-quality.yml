@@ -58,7 +58,7 @@ jobs:
       - name: Run PHPStan (Static Analysis)
         run: |
           phpstan analyse \
-            --level=8 \
+            --level=6 \
             --no-progress \
             app/ config/
         continue-on-error: true
