@@ -41,7 +41,8 @@ class AppServiceProvider extends ServiceProvider
                 $app->make(LLMService::class),
                 $app->make(AdvisorConfigService::class),
                 $app->make(AdvisorQualityService::class),
-                $app->make(\App\Services\Validation\TemplateComplianceValidator::class)
+                $app->make(\App\Services\Validation\TemplateComplianceValidator::class),
+                $app->make(\App\Services\Validation\AIEmbodimentQualityScorer::class)
             );
         });
     }

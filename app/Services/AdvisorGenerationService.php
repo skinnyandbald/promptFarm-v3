@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Exceptions\TemplateComplianceException;
 use App\Services\Validation\AdvisorQualityService;
 use App\Services\Validation\TemplateComplianceValidator;
+use App\Services\Validation\AIEmbodimentQualityScorer;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -16,7 +17,8 @@ class AdvisorGenerationService
         protected LLMService $llmService,
         protected AdvisorConfigService $configService,
         protected AdvisorQualityService $qualityService,
-        protected TemplateComplianceValidator $templateComplianceValidator
+        protected TemplateComplianceValidator $templateComplianceValidator,
+        protected AIEmbodimentQualityScorer $aiEmbodimentScorer
     ) {}
 
     /**
@@ -175,39 +177,33 @@ class AdvisorGenerationService
 
     /**
      * Generate PI (Project Instructions) content with two-stage approach:
-     * Stage 1: Deterministic template substitution (instant)
-     * Stage 2: Lightweight LLM enhancement for examples (2-3 seconds)
+     * Stage 1: Structured variable generation with reliable filling
+     * Stage 2: Lightweight LLM enhancement for examples (preserved exactly)
      */
     protected function generatePI(array $advisorData, array $mappedVars = []): string
     {
-        // Use v1 template for now (no player context)
         $templateName = 'meta_pi_template_v1';
-
-        // Load template (may throw if not found)
         $template = $this->templateService->loadTemplate($templateName);
 
-        // Use pre-mapped variables or map from advisor data directly
-        if (empty($mappedVars)) {
-            $mappedVars = $this->configService->mapVariables($advisorData);
-        }
+        // NEW: Generate variables with structured output
+        $variables = $this->generatePIVariables($advisorData, $template);
 
-        // Get all template variables and ensure they're provided
-        $variablesInTemplate = $this->extractVariables($template);
-        $substitutionMap = [];
-        foreach ($variablesInTemplate as $varName) {
-            $substitutionMap[$varName] = $mappedVars[$varName] ?? '';
-        }
+        // Add static variables (UNCHANGED)
+        $variables['advisor_name'] = $advisorData['name'];
+        $variables['advisor_name_pascal'] = Str::studly($advisorData['name']);
+        $variables['date'] = now()->format('Y-m-d');
 
-        // Stage 1: Deterministic template substitution
-        $processedTemplate = $this->templateService->substituteVariables($template, $substitutionMap);
+        // Render with Mustache (IMPROVED)
+        $mustache = new \Mustache_Engine(['escape' => fn ($v) => $v]);
+        $processedTemplate = $mustache->render($template, $variables);
 
         // Validate base template
         $processedTemplate = trim($processedTemplate);
         if ($processedTemplate === '') {
-            throw new \Exception('PI generation produced empty content after deterministic substitution');
+            throw new \Exception('PI generation produced empty content after substitution');
         }
 
-        // Stage 2: Enhance with specific examples using lightweight LLM
+        // Stage 2: PRESERVED EXACTLY AS IS
         Log::info('Starting PI enhancement with model', ['model' => config('ai-models.purposes.pi_enhancement')]);
         $enhancedTemplate = $this->enhancePIWithExamples($processedTemplate, $advisorData);
         Log::info('PI enhancement complete');
@@ -215,7 +211,315 @@ class AdvisorGenerationService
         // Remove any leftover unreplaced variable markers
         $enhancedTemplate = preg_replace('/\{\{\s*([^\}]+)\s*\}\}/', '', $enhancedTemplate);
 
+        // NEW: Validate AI embodiment quality using hybrid scorer
+        $embodimentResult = $this->aiEmbodimentScorer->scoreAIEmbodiment($enhancedTemplate, $advisorData);
+        if ($embodimentResult['total_score'] < 75) {
+            Log::warning('AI embodiment quality below threshold', [
+                'score' => $embodimentResult['total_score'],
+                'valid' => $embodimentResult['valid'],
+                'recommendations' => $embodimentResult['recommendations'],
+            ]);
+        } else {
+            Log::info('AI embodiment quality validation passed', [
+                'score' => $embodimentResult['total_score'],
+                'breakdown' => $embodimentResult['breakdown']
+            ]);
+        }
+
+        // CRITICAL: Check 8000 character limit
+        if (strlen($enhancedTemplate) > 8000) {
+            throw new \Exception('PI exceeds 8000 character limit: ' . strlen($enhancedTemplate) . ' characters');
+        }
+
         return $enhancedTemplate;
+    }
+
+    /**
+     * Generate PI variables with structured output for reliable variable filling
+     */
+    private function generatePIVariables(array $advisorData, string $template): array
+    {
+        $maxAttempts = 3;
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                // Build JSON schema for variables
+                $schema = $this->buildPIVariableSchema($template);
+
+                // Build prompt for variable generation
+                $prompt = $this->buildPIVariablePrompt($advisorData);
+
+                // Generate with structured output
+                $response = $this->llmService->generateText($prompt, [
+                    'model' => config('ai-models.purposes.pi_enhancement'),
+                    'temperature' => 0.7,
+                    'response_format' => $schema,
+                    'system_message' => 'Generate appropriate content for all template variables',
+                ]);
+
+                // Parse JSON response
+                $variables = json_decode($response, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    Log::info('Structured variable generation successful', [
+                        'attempt' => $attempt,
+                        'variables_count' => count($variables),
+                    ]);
+
+                    return $variables;
+                }
+
+                Log::warning('JSON parsing failed for structured output', [
+                    'attempt' => $attempt,
+                    'error' => json_last_error_msg(),
+                ]);
+
+            } catch (\Exception $e) {
+                Log::warning('Structured variable generation failed', [
+                    'attempt' => $attempt,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        throw new \Exception('Failed to generate PI variables with structured output after '.$maxAttempts.' attempts');
+    }
+
+    /**
+     * Build JSON schema for PI template variables
+     */
+    private function buildPIVariableSchema(string $template): array
+    {
+        // Extract all {{variables}} from template
+        preg_match_all('/\{\{([^}]+)\}\}/', $template, $matches);
+        $variables = array_unique($matches[1]);
+
+        $properties = [];
+        $required = [];
+
+        foreach ($variables as $variable) {
+            // Skip static variables that are handled separately
+            if (in_array($variable, ['advisor_name', 'advisor_name_pascal', 'date'])) {
+                continue;
+            }
+
+            $required[] = $variable;
+
+            // Define specific requirements for known PI variables
+            switch ($variable) {
+                case 'chain_of_thought':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 300,
+                        'description' => 'Step-by-step reasoning process with examples from advisor\'s documented work',
+                    ];
+                    break;
+
+                case 'few_shot_examples':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 80,
+                        'description' => '2 brief, specific examples from advisor\'s work',
+                    ];
+                    break;
+
+                case 'retrieval_context':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 40,
+                        'maxLength' => 250,
+                        'description' => 'Instructions for referencing advisor\'s specific case studies and documented outcomes',
+                    ];
+                    break;
+
+                case 'constitutional_constraints':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 300,
+                        'description' => 'Advisor-specific behavioral boundaries and evidence requirements',
+                    ];
+                    break;
+
+                case 'forbidden_phrases':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => '5-7 specific phrases as bullet points only, no explanations',
+                    ];
+                    break;
+
+                case 'self_critique_protocol':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 80,
+                        'description' => '3-4 brief internal check questions, no explanations',
+                    ];
+                    break;
+
+                case 'constitutional_constraints_summary':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 40,
+                        'maxLength' => 80,
+                        'description' => 'Advisor-specific behavioral boundaries and evidence requirements',
+                    ];
+                    break;
+
+                case 'operating_principles':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => '5-6 concise principles as bullet points, no explanations',
+                    ];
+                    break;
+
+                case 'communication_style':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => 'How the advisor communicates and presents ideas',
+                    ];
+                    break;
+
+                case 'decision_making_approach':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => 'The advisor\'s decision-making framework and process',
+                    ];
+                    break;
+
+                case 'key_phrases':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 80,
+                        'description' => 'Signature phrases or terminology the advisor is known for',
+                    ];
+                    break;
+
+                case 'emotional_characteristics':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 80,
+                        'description' => 'The advisor\'s emotional tone and style',
+                    ];
+                    break;
+
+                case 'unique_perspectives':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 80,
+                        'description' => 'Contrarian or unique views this advisor holds',
+                    ];
+                    break;
+
+                case 'core_expertise':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => 'Primary domain of expertise',
+                    ];
+                    break;
+
+                case 'related_expertise':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 80,
+                        'description' => 'Secondary areas of expertise',
+                    ];
+                    break;
+
+                case 'scenarios_to_defer':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 300,
+                        'description' => 'When the advisor should defer or redirect to others',
+                    ];
+                    break;
+
+                case 'explicit_limitations':
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 30,
+                        'maxLength' => 100,
+                        'description' => 'Areas the advisor should never advise on',
+                    ];
+                    break;
+
+                default:
+                    $properties[$variable] = [
+                        'type' => 'string',
+                        'minLength' => 20,
+                        'maxLength' => 100,
+                        'description' => 'Content for '.$variable,
+                    ];
+            }
+        }
+
+        return [
+            'type' => 'json_schema',
+            'json_schema' => [
+                'name' => 'pi_template_variables',
+                'strict' => true,
+                'schema' => [
+                    'type' => 'object',
+                    'properties' => $properties,
+                    'required' => $required,
+                    'additionalProperties' => false,
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Build prompt for PI variable generation
+     */
+    private function buildPIVariablePrompt(array $advisorData): string
+    {
+        $advisorName = $advisorData['full_name'] ?? $advisorData['name'] ?? 'Unknown Advisor';
+        $expertise = $advisorData['core_expertise_area'] ?? $advisorData['expertise_area'] ?? '';
+        $background = $advisorData['background_description'] ?? $advisorData['background'] ?? '';
+        $notableWork = $advisorData['notable_achievements'] ?? '';
+        $methodology = $advisorData['decision_making_approach'] ?? '';
+
+        return <<<PROMPT
+Generate ultra-concise Project Instruction variables for {$advisorName}.
+
+PROFILE: {$advisorName} | {$expertise} | {$background}
+
+COMPRESSION STRATEGY - Prioritize HIGH-IMPACT content:
+1. Core methodology over background details
+2. Specific examples with metrics over vague principles  
+3. Contrarian insights over common wisdom
+4. Actionable triggers over theoretical explanations
+5. Sharp, memorable phrases over verbose descriptions
+
+EFFICACY REQUIREMENTS:
+- Each variable must contain advisor's unique differentiation
+- Include specific campaign/project names with measurable outcomes
+- Focus on decision-making patterns that reveal personality
+- Capture signature phrases and contrarian positions
+- Provide concrete behavioral triggers
+
+CRITICAL LENGTH CONSTRAINT: Final PI must be <8000 characters.
+Target: 6000 characters structured + 2000 character enhancement budget.
+
+Write in advisor's voice. Use bullets, not paragraphs. No filler words.
+Return JSON with template variables as keys, compressed high-impact content as values.
+PROMPT;
     }
 
     /**
@@ -225,7 +529,7 @@ class AdvisorGenerationService
     {
         // Extract HTML comments for logging/debugging purposes
         $htmlComments = $this->templateService->extractHTMLComments($baseTemplate);
-        
+
         Log::info('enhancePIWithExamples called', [
             'advisor_data_keys' => array_keys($advisorData),
             'base_template_length' => strlen($baseTemplate),
@@ -305,8 +609,20 @@ class AdvisorGenerationService
             $secondaryPerspectives = 'CRITICAL PERSPECTIVE: '.$advisorData['secondary_perspectives'];
         }
 
+        $baseTemplateLength = strlen($baseTemplate);
+        
         return <<<PROMPT
 You are enhancing an advisor instruction template to trigger reasoning rather than safety responses.
+
+CRITICAL LENGTH CONSTRAINT: Final enhanced template must be <8000 characters total.
+Current template: {$baseTemplateLength} characters. Enhancement budget: remaining ~2000 characters.
+
+QUALITY-AWARE COMPRESSION RULES:
+1. Prioritize high-impact interventions that trigger deep thinking
+2. Cut verbose explanations, keep sharp insights
+3. Preserve signature patterns and contrarian perspectives
+4. Focus on behavioral triggers over theoretical background
+5. Compress without losing personality or effectiveness
 
 Advisor: {$advisorName}
 Expertise: {$expertise}
@@ -405,6 +721,10 @@ PROMPT;
                 // Step 4.5: Strip HTML comments from final output
                 $rendered = preg_replace('/<!--.*?-->/s', '', $rendered);
                 $rendered = preg_replace('/\n\s*\n\s*\n/', "\n\n", $rendered); // Clean up extra blank lines
+                
+                // Step 4.6: Fix invalid markdown - remove bold formatting from headers
+                $rendered = preg_replace('/^(#+)\s*\*\*(.*?)\*\*\s*$/m', '$1 $2', $rendered);
+                
                 $rendered = trim($rendered);
 
                 // Step 5: Validate compliance
@@ -472,8 +792,8 @@ PROMPT;
                 case 'voice_dna':
                     $properties[$variable] = [
                         'type' => 'string',
-                        'minLength' => 50,
-                        'maxLength' => 200,
+                        'minLength' => 20,
+                        'maxLength' => 100,
                         'description' => 'One-line essence capturing the advisor\'s unique perspective',
                     ];
                     break;
@@ -482,8 +802,8 @@ PROMPT;
                 case 'anti_patterns_list':
                     $properties[$variable] = [
                         'type' => 'string',
-                        'minLength' => 200,
-                        'maxLength' => 800,
+                        'minLength' => 20,
+                        'maxLength' => 300,
                         'description' => '5-6 bullet points starting with "- "',
                     ];
                     break;
@@ -493,8 +813,8 @@ PROMPT;
                 case 'voice_example_3':
                     $properties[$variable] = [
                         'type' => 'string',
-                        'minLength' => 100,
-                        'maxLength' => 400,
+                        'minLength' => 30,
+                        'maxLength' => 80,
                         'description' => 'First-person quote with specific examples',
                     ];
                     break;
@@ -520,8 +840,8 @@ PROMPT;
                 case 'daily_implementation':
                     $properties[$variable] = [
                         'type' => 'string',
-                        'minLength' => 200,
-                        'maxLength' => 800,
+                        'minLength' => 20,
+                        'maxLength' => 300,
                         'description' => 'How they work day-to-day with specific tactical examples',
                     ];
                     break;
@@ -554,7 +874,7 @@ PROMPT;
                     $properties[$variable] = [
                         'type' => 'string',
                         'minLength' => 10,
-                        'maxLength' => 600,
+                        'maxLength' => 250,
                         'description' => 'Content for '.$variable,
                     ];
             }

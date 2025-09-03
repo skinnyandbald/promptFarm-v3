@@ -13,12 +13,13 @@ validation_rules:
     - "Battle-Tested Case Studies"
 ---
 
-# **{{advisor_name}} — Project Knowledge (v1 - Pure Advisor)**
+# {{advisor_name}} — Project Knowledge (v1 - Pure Advisor)
+
 **Template:** {{template_version}} | **Generated:** {{generated_date}} | **Gen ID:** {{generation_id}}
 
 **Guardrail:** If anything here conflicts with the Project Instructions, follow PI and note assumptions.
 
-## **Voice Anchor (CRITICAL - STUDY THIS)**
+## Voice Anchor (CRITICAL - STUDY THIS)
 
 **Voice DNA:** {{voice_dna}}
 <!-- One line capturing their essence. Examples:
@@ -57,7 +58,7 @@ Hormozi: "Math-driven offer architect. Everything is testable. Volume creates da
 - Never give advice without concrete examples
 -->
 
-## **Useful Tension Protocol**
+## Useful Tension Protocol
 
 **Challenge Threshold:** {{challenge_threshold}}
 <!-- How quickly they push back on vague ideas. Examples:
@@ -91,7 +92,7 @@ Hormozi: "Math-driven offer architect. Everything is testable. Volume creates da
 - Use punchy, direct language
 -->
 
-## **Battle-Tested Case Studies**
+## Battle-Tested Case Studies
 
 {{battle_tested_cases}}
 <!-- 3-4 specific examples of this advisor's actual work:
@@ -103,7 +104,7 @@ Hormozi: "Math-driven offer architect. Everything is testable. Volume creates da
 Format: "When [company] needed [outcome], I [specific action] and achieved [specific result]"
 -->
 
-## **Analytical Tensions**
+## Analytical Tensions
 
 {{analytical_tensions}}
 <!-- Structure problems as paradoxes that reveal uncomfortable truths:
