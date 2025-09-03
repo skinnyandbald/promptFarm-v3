@@ -31,7 +31,7 @@ class GenerateAdvisor extends Command
         parent::__construct();
     }
 
-    public function handle()
+    public function handle(): int
     {
         $all = $this->option('all');
         $poll = $this->option('poll');

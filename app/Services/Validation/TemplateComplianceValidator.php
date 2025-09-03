@@ -4,7 +4,7 @@ namespace App\Services\Validation;
 
 class TemplateComplianceValidator
 {
-    private array $criticalMarkers = [
+    private array $pkCriticalMarkers = [
         '## **Voice Anchor (CRITICAL - STUDY THIS)**',
         '**Voice DNA:**',
         '**Voice Examples (STUDY THESE):**',
@@ -15,35 +15,70 @@ class TemplateComplianceValidator
         '## **Analytical Tensions**',
     ];
 
-    public function validate(string $content): array
+    public function validate(string $content, string $templateType = 'pk'): array
     {
         $score = 100;
         $issues = [];
-
-        // Check critical markers
-        foreach ($this->criticalMarkers as $marker) {
-            if (! str_contains($content, $marker)) {
-                $issues[] = "Missing: {$marker}";
+        
+        // Check for unreplaced mustache variables
+        if (preg_match('/\{\{[^}]+\}\}/', $content)) {
+            $score -= 30;
+            $issues[] = 'Unreplaced template variables found';
+        }
+        
+        // Check for remaining HTML comments
+        if (preg_match('/<!--.*?-->/s', $content)) {
+            $score -= 20;
+            $issues[] = 'HTML comments not replaced';
+        }
+        
+        // Check minimum content length
+        $minLength = $templateType === 'pi' ? 3000 : 2000;
+        if (strlen($content) < $minLength) {
+            $score -= 20;
+            $issues[] = "Content too short (minimum {$minLength} characters)";
+        }
+        
+        // PI-specific checks
+        if ($templateType === 'pi') {
+            // Check for required sections
+            $requiredSections = [
+                '## **Core Operating Principles**',
+                '## **Voice Authenticity Anchors**',
+                '## **Domain Expertise Boundaries**',
+                '## **Response Quality Standards**',
+                '## **Version Notes**'
+            ];
+            
+            foreach ($requiredSections as $section) {
+                if (strpos($content, $section) === false) {
+                    $score -= 10;
+                    $issues[] = "Missing required section: {$section}";
+                }
+            }
+            
+            // Check for Version Notes YAML
+            if (!preg_match('/```yaml\s*pi_version:/', $content)) {
                 $score -= 10;
+                $issues[] = 'Missing Version Notes YAML block';
             }
         }
-
-        // Check for unreplaced variables
-        if (preg_match('/\{\{[^}]+\}\}/', $content)) {
-            $issues[] = 'Unreplaced mustache variables found';
-            $score -= 20;
+        
+        // PK-specific checks
+        if ($templateType === 'pk') {
+            // Check critical markers for PK
+            foreach ($this->pkCriticalMarkers as $marker) {
+                if (! str_contains($content, $marker)) {
+                    $issues[] = "Missing: {$marker}";
+                    $score -= 10;
+                }
+            }
         }
-
-        // Check for minimum content
-        if (strlen($content) < 2000) {
-            $issues[] = 'Content too short';
-            $score -= 10;
-        }
-
+        
         return [
-            'valid' => $score >= 90,
             'score' => max(0, $score),
-            'issues' => $issues,
+            'valid' => $score >= 90,
+            'issues' => $issues
         ];
     }
 }

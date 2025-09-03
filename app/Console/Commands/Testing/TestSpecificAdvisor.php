@@ -71,7 +71,7 @@ class TestSpecificAdvisor extends Command
         $startTime = microtime(true);
 
         try {
-            $result = $generationService->generateAdvisor($advisor->id);
+            $result = $generationService->generateAdvisor($advisor);
 
             $duration = round(microtime(true) - $startTime, 2);
             $this->info("✅ Generation completed in {$duration} seconds");
@@ -105,23 +105,23 @@ class TestSpecificAdvisor extends Command
         $advisorKey = str_replace('_', '-', $advisor->slug);
         $baselinePath = storage_path("app/advisors/{$advisorKey}");
 
-        if (! file_exists($baselinePath.'/PI.md')) {
+        $piFile = collect(glob($baselinePath.'/*_PI.md'))->sort()->last();
+        $pkFile = collect(glob($baselinePath.'/*_PK.md'))->sort()->last();
+        if (! $piFile || ! $pkFile) {
             $this->warn('No baseline found for comparison.');
-
             return;
         }
+        $piContent = file_get_contents($piFile);
+        $pkContent = file_get_contents($pkFile);
 
-        $piContent = file_get_contents($baselinePath.'/PI.md');
-        $pkContent = file_get_contents($baselinePath.'/PK.md');
-
-        $piQuality = $qualityService->validatePI($piContent);
-        $pkQuality = $qualityService->validatePK($pkContent);
+        $piQuality = $qualityService->scorePI($piContent);
+        $pkQuality = $qualityService->scorePK($pkContent);
 
         $this->table(
             ['Component', 'Score', 'Issues'],
             [
-                ['PI', $piQuality['score'].'%', count($piQuality['failed_checks'] ?? [])],
-                ['PK', $pkQuality['score'].'%', count($pkQuality['failed_checks'] ?? [])],
+                ['PI', ($piQuality['percentage'] ?? $piQuality['score']).'%', count($piQuality['issues'] ?? [])],
+                ['PK', ($pkQuality['percentage'] ?? $pkQuality['score']).'%', count($pkQuality['issues'] ?? [])],
             ]
         );
 
@@ -168,8 +168,8 @@ class TestSpecificAdvisor extends Command
         $this->info('📊 Quality Analysis:');
 
         // Structural quality
-        $piQuality = $qualityService->validatePI($result['pi'] ?? '');
-        $pkQuality = $qualityService->validatePK($result['pk'] ?? '');
+        $piQuality = $qualityService->scorePI($result['pi'] ?? '');
+        $pkQuality = $qualityService->scorePK($result['pk'] ?? '');
 
         $this->table(
             ['Component', 'Structural Score', 'Issues'],
