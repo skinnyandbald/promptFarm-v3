@@ -52,6 +52,8 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
             Please review this Laravel 12 pull request and provide feedback on:
             - Laravel best practices and conventions
