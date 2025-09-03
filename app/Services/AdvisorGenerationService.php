@@ -17,7 +17,8 @@ class AdvisorGenerationService
         protected LLMService $llmService,
         protected AdvisorConfigService $configService,
         protected AdvisorQualityService $qualityService,
-        protected TemplateComplianceValidator $templateComplianceValidator
+        protected TemplateComplianceValidator $templateComplianceValidator,
+        protected AIEmbodimentQualityScorer $aiEmbodimentScorer
     ) {}
 
     /**
@@ -210,15 +211,19 @@ class AdvisorGenerationService
         // Remove any leftover unreplaced variable markers
         $enhancedTemplate = preg_replace('/\{\{\s*([^\}]+)\s*\}\}/', '', $enhancedTemplate);
 
-        // NEW: Validate compliance including markdown structure
-        $result = $this->templateComplianceValidator->validate($enhancedTemplate, 'pi');
-        if ($result['score'] < 90) {
-            Log::warning('PI compliance below threshold', [
-                'score' => $result['score'],
-                'issues' => $result['issues'],
+        // NEW: Validate AI embodiment quality using hybrid scorer
+        $embodimentResult = $this->aiEmbodimentScorer->scoreAIEmbodiment($enhancedTemplate, $advisorData);
+        if ($embodimentResult['total_score'] < 75) {
+            Log::warning('AI embodiment quality below threshold', [
+                'score' => $embodimentResult['total_score'],
+                'valid' => $embodimentResult['valid'],
+                'recommendations' => $embodimentResult['recommendations'],
             ]);
         } else {
-            Log::info('PI compliance validation passed', ['score' => $result['score']]);
+            Log::info('AI embodiment quality validation passed', [
+                'score' => $embodimentResult['total_score'],
+                'breakdown' => $embodimentResult['breakdown']
+            ]);
         }
 
         // CRITICAL: Check 8000 character limit
