@@ -15,7 +15,8 @@ class AdvisorGenerationService
         protected TemplateService $templateService,
         protected LLMService $llmService,
         protected AdvisorConfigService $configService,
-        protected AdvisorQualityService $qualityService
+        protected AdvisorQualityService $qualityService,
+        protected TemplateComplianceValidator $templateComplianceValidator
     ) {}
 
     /**
@@ -375,66 +376,66 @@ PROMPT;
     protected function generatePK(array $advisorData, array $mappedVars = [], int $maxAttempts = 3): string
     {
         $template = $this->loadPKTemplate();
-        $mustache = new \Mustache_Engine(['escape' => fn($v) => $v]);
-        
+        $mustache = new \Mustache_Engine(['escape' => fn ($v) => $v]);
+
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
                 // Step 1: Build prompt with template and strict instructions
                 $prompt = $this->buildTemplateCompliancePrompt(
-                    $template, 
-                    $advisorData, 
+                    $template,
+                    $advisorData,
                     $attempt
                 );
-                
+
                 // Step 2: Generate with structured output (JSON schema)
                 $schema = $this->buildVariableSchema($template);
-                
+
                 $response = $this->llmService->generateText($prompt, [
                     'model' => config('ai-models.purposes.pk_generation'),
                     'temperature' => 0.7,
                     'response_format' => $schema,  // Schema already includes the full structure
-                    'system_message' => 'You must return valid JSON with template variables only'
+                    'system_message' => 'You must return valid JSON with template variables only',
                 ]);
-                
+
                 // Step 3: Parse JSON
                 $variables = json_decode($response, true);
                 if (json_last_error() !== JSON_ERROR_NONE) {
-                    throw new \Exception('Invalid JSON: ' . json_last_error_msg());
+                    throw new \Exception('Invalid JSON: '.json_last_error_msg());
                 }
-                
+
                 // Step 4: Render with Mustache
                 $rendered = $mustache->render($template, $variables);
-                
+
                 // Step 4.5: Strip HTML comments from final output
                 $rendered = preg_replace('/<!--.*?-->/s', '', $rendered);
                 $rendered = preg_replace('/\n\s*\n\s*\n/', "\n\n", $rendered); // Clean up extra blank lines
                 $rendered = trim($rendered);
-                
+
                 // Step 5: Validate compliance
-                $validator = new TemplateComplianceValidator();
-                $result = $validator->validate($rendered);
-                
+                $result = $this->templateComplianceValidator->validate($rendered);
+
                 if ($result['score'] >= 90) {
                     Log::info('PK generation successful', [
                         'compliance_score' => $result['score'],
-                        'attempt' => $attempt
+                        'attempt' => $attempt,
                     ]);
+
                     return $rendered;
                 }
-                
+
                 // Log issues for debugging
                 Log::warning('Template compliance failed', [
                     'attempt' => $attempt,
                     'score' => $result['score'],
-                    'issues' => $result['issues']
+                    'issues' => $result['issues'],
                 ]);
-                
+
             } catch (\Exception $e) {
                 Log::error('PK generation attempt failed', [
                     'attempt' => $attempt,
-                    'error' => $e->getMessage()
+                    'error' => $e->getMessage(),
                 ]);
-                
+
                 if ($attempt === $maxAttempts) {
                     throw new TemplateComplianceException(
                         "Failed to generate compliant PK after {$maxAttempts} attempts",
@@ -443,7 +444,7 @@ PROMPT;
                 }
             }
         }
-        
+
         throw new TemplateComplianceException('Max attempts reached without compliance');
     }
 
@@ -463,13 +464,13 @@ PROMPT;
         // Extract all {{variables}} from template
         preg_match_all('/\{\{([^}]+)\}\}/', $template, $matches);
         $variables = array_unique($matches[1]);
-        
+
         $properties = [];
         $required = [];
-        
+
         foreach ($variables as $variable) {
             $required[] = $variable;
-            
+
             // Define specific requirements for known variables
             switch ($variable) {
                 case 'voice_dna':
@@ -477,20 +478,20 @@ PROMPT;
                         'type' => 'string',
                         'minLength' => 50,
                         'maxLength' => 200,
-                        'description' => 'One-line essence capturing the advisor\'s unique perspective'
+                        'description' => 'One-line essence capturing the advisor\'s unique perspective',
                     ];
                     break;
-                    
+
                 case 'patterns_list':
                 case 'anti_patterns_list':
                     $properties[$variable] = [
                         'type' => 'string',
                         'minLength' => 200,
                         'maxLength' => 800,
-                        'description' => '5-6 bullet points starting with "- "'
+                        'description' => '5-6 bullet points starting with "- "',
                     ];
                     break;
-                    
+
                 case 'voice_example_1':
                 case 'voice_example_2':
                 case 'voice_example_3':
@@ -498,16 +499,16 @@ PROMPT;
                         'type' => 'string',
                         'minLength' => 100,
                         'maxLength' => 400,
-                        'description' => 'First-person quote with specific examples'
+                        'description' => 'First-person quote with specific examples',
                     ];
                     break;
-                    
+
                 case 'analytical_tensions':
                     $properties[$variable] = [
                         'type' => 'string',
                         'minLength' => 300,
                         'maxLength' => 1200,
-                        'description' => 'Paradoxes with evidence and uncomfortable truths'
+                        'description' => 'Paradoxes with evidence and uncomfortable truths',
                     ];
                     break;
 
@@ -516,7 +517,7 @@ PROMPT;
                         'type' => 'string',
                         'minLength' => 400,
                         'maxLength' => 1500,
-                        'description' => '3-4 specific examples of actual work with measurable results'
+                        'description' => '3-4 specific examples of actual work with measurable results',
                     ];
                     break;
 
@@ -525,10 +526,10 @@ PROMPT;
                         'type' => 'string',
                         'minLength' => 200,
                         'maxLength' => 800,
-                        'description' => 'How they work day-to-day with specific tactical examples'
+                        'description' => 'How they work day-to-day with specific tactical examples',
                     ];
                     break;
-                    
+
                 case 'advisor_name':
                 case 'template_version':
                 case 'generated_date':
@@ -538,7 +539,7 @@ PROMPT;
                         'type' => 'string',
                         'minLength' => 1,
                         'maxLength' => 100,
-                        'description' => 'Metadata field for ' . $variable
+                        'description' => 'Metadata field for '.$variable,
                     ];
                     break;
 
@@ -549,20 +550,20 @@ PROMPT;
                         'type' => 'string',
                         'minLength' => 3,
                         'maxLength' => 50,
-                        'description' => 'Topic area for voice example'
+                        'description' => 'Topic area for voice example',
                     ];
                     break;
-                    
+
                 default:
                     $properties[$variable] = [
                         'type' => 'string',
                         'minLength' => 10,
                         'maxLength' => 600,
-                        'description' => 'Content for ' . $variable
+                        'description' => 'Content for '.$variable,
                     ];
             }
         }
-        
+
         return [
             'type' => 'json_schema',
             'json_schema' => [
@@ -572,9 +573,9 @@ PROMPT;
                     'type' => 'object',
                     'properties' => $properties,
                     'required' => $required,
-                    'additionalProperties' => false  // CRITICAL: Prevents adding ANY extra fields
-                ]
-            ]
+                    'additionalProperties' => false,  // CRITICAL: Prevents adding ANY extra fields
+                ],
+            ],
         ];
     }
 
@@ -582,15 +583,15 @@ PROMPT;
      * Build prompt with escalating strictness based on attempt number
      */
     private function buildTemplateCompliancePrompt(
-        string $template, 
-        array $advisorData, 
+        string $template,
+        array $advisorData,
         int $attempt
     ): string {
         $advisorName = $advisorData['full_name'] ?? $advisorData['name'];
-        
+
         // Base instructions
         $instructions = "Fill in ONLY the {{variables}} in this template for {$advisorName}.";
-        
+
         // Escalate strictness with each attempt
         if ($attempt === 1) {
             $instructions .= "\n\nRULES:
@@ -619,20 +620,20 @@ MANDATORY REQUIREMENTS:
 
 IF YOU FAIL AGAIN, THE GENERATION WILL BE REJECTED.";
         }
-        
+
         // Extract variable list for clarity
         preg_match_all('/\{\{([^}]+)\}\}/', $template, $matches);
         $variables = array_unique($matches[1]);
-        
-        $instructions .= "\n\nVARIABLES TO FILL:\n" . implode("\n", array_map(
-            fn($v) => "- {$v}: " . $this->getVariableDescription($v),
+
+        $instructions .= "\n\nVARIABLES TO FILL:\n".implode("\n", array_map(
+            fn ($v) => "- {$v}: ".$this->getVariableDescription($v),
             $variables
         ));
-        
+
         $instructions .= "\n\nTEMPLATE:\n{$template}";
-        
-        $instructions .= "\n\nADVISOR CONTEXT:\n" . json_encode($advisorData, JSON_PRETTY_PRINT);
-        
+
+        $instructions .= "\n\nADVISOR CONTEXT:\n".json_encode($advisorData, JSON_PRETTY_PRINT);
+
         return $instructions;
     }
 
@@ -641,7 +642,7 @@ IF YOU FAIL AGAIN, THE GENERATION WILL BE REJECTED.";
      */
     private function getVariableDescription(string $variable): string
     {
-        return match($variable) {
+        return match ($variable) {
             'voice_dna' => 'One-line essence capturing their unique perspective',
             'voice_example_1', 'voice_example_2', 'voice_example_3' => 'First-person quote with specific examples',
             'patterns_list' => '5-6 bullet points of consistent behaviors',
