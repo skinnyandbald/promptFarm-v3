@@ -7,6 +7,36 @@ use Illuminate\Support\Facades\File;
 use App\Services\LLMService;
 use App\Services\StyleGuideService;
 
+/**
+ * PI Comparison Test Command - A/B/C Testing for Project Instructions
+ *
+ * CRITICAL CONTEXT: This command tests DIFFERENT PI (Project Instruction) files
+ * while keeping the PK (Project Knowledge) identical across all variations.
+ *
+ * Each variation uses a completely different PI file with different instructions:
+ * - Control: Full comprehensive instructions (89 lines) with all frameworks
+ * - Variation A: "Invisible Density Engine" - Word limits (≤25/75/50 words per section)
+ * - Variation B: "Pure Voice Anchor" - Minimal structure, identity-focused
+ * - Variation C: "Constitutional Density" - 2-sentence limits with AI boundaries
+ *
+ * The variations test different hypotheses about what creates quality advisor responses:
+ * - Control: Comprehensive instructions = consistent quality (baseline)
+ * - A: Hidden word constraints = natural conversational density
+ * - B: Strong identity focus = authentic voice with minimal rules
+ * - C: Constitutional boundaries + brevity = reliable quality floor
+ *
+ * Files structure:
+ * storage/app/testing/pi-variations/
+ *   control/AlexBogusky_PI.md (different content)
+ *   control/AlexBogusky_PK.md (identical)
+ *   variation-a/AlexBogusky_PI.md (different content)
+ *   variation-a/AlexBogusky_PK.md (identical)
+ *   ...etc
+ *
+ * Usage:
+ * php artisan pi:compare-test alex-bogusky --variations=all
+ * php artisan pi:compare-test alex-hormozi --variations=a,b --anti-ai-style=on
+ */
 class PIComparisonTest extends Command
 {
     /**
@@ -25,7 +55,7 @@ class PIComparisonTest extends Command
      *
      * @var string
      */
-    protected $description = 'Run PI comparison tests across variations with default prompt library or custom prompt';
+    protected $description = 'Test different PI instructions with identical PK to measure impact on response quality';
 
     protected LLMService $llmService;
     protected StyleGuideService $styleGuideService;
@@ -48,6 +78,7 @@ class PIComparisonTest extends Command
         $saveMetadata = $this->option('save-experiment-metadata');
 
         $this->info("🧪 Running PI comparison tests for {$advisor}");
+        $this->displayVariationContext();
 
         if ($antiAiStyle) {
             $this->info("🚫 Anti-AI style guide enabled");
@@ -152,30 +183,67 @@ class PIComparisonTest extends Command
 
     protected function getDefaultTestPrompts(): array
     {
-        return [
+        // Get advisor from command argument
+        $advisor = $this->argument('advisor');
 
-            // Prompt 6: PromptFarm Framing Competition
+        // Return advisor-specific prompts
+        switch ($advisor) {
+            case 'alex-hormozi':
+                return $this->getHormoziPrompts();
+
+            case 'alex-bogusky':
+            default:
+                return $this->getBoguskyPrompts();
+        }
+    }
+
+    protected function getBoguskyPrompts(): array
+    {
+        return [
+            // Prompt 1: PromptFarm Framing Competition
             "Context: PromptFarm is a platform to spin up a personalized board of expert AI advisors. Alex, give me 3 competing ways to frame what PromptFarm is and why it matters. For each: a 1-sentence hook + a 40–60 word story + the audience it will resonate with.",
 
-            // Prompt 7: PromptFarm 30-Second Pitch
+            // Prompt 2: PromptFarm 30-Second Pitch
             "Context: PromptFarm = build-your-own AI advisory board. Alex, explain PromptFarm in 30 seconds to a sharp founder who hates buzzwords. Give 2 versions: (A) plain-spoken, (B) analogy/metaphor.",
 
-            // Prompt 8: PromptFarm We Believe Manifesto
+            // Prompt 3: PromptFarm We Believe Manifesto
             "Context: PromptFarm replaces one generic model with a board of perspectives. Alex, write a 120–150 word \"We believe…\" that would make fans nod and skeptics argue. No jargon. Make it shareable.",
 
-            // Prompt 9: PromptFarm Generous Artifact
+            // Prompt 4: PromptFarm Generous Artifact
             "Context: PromptFarm. Alex, propose 1 generous artifact (tool, template, toy) we could release that markets PromptFarm by being useful on its own. Describe it in 4–6 sentences and outline the first version we can ship in a day."
+        ];
+    }
+
+    protected function getHormoziPrompts(): array
+    {
+        return [
+            // Prompt 1: AI Pilot Pricing & Risk
+            "Hormozi: should we spin up AI coding/claims automation pilots? We're a $12M ARR healthcare ops SaaS. If yes, how would you price it and reduce risk?",
+
+            // Prompt 2: Detailed AI Automation Gut Check
+            "Hey Alex, quick gut check. We're a $12M ARR healthcare ops SaaS (GM 78%, CAC payback ~13m, NRR 104%, GRR 93%, ~6m cycles; PS is 22% of rev). We're eyeing AI \"coding/claims automation\" pilots: $250k setup + success fee tied to verified FTE hours saved.\n\nI need three things:\n• The one gating proof you'd require before I sell outcomes pricing (what inputs/outputs, baseline, and how we verify).\n• A first-offer sketch that a CFO/COO will greenlight (scope, price, risk reversal, proof stack).\n• Two failure modes (compliance/delivery/margin) and two asymmetric upsides (LTV/defensibility).",
+
+            // Prompt 3: AI Consultancy Arm Strategy
+            "I'm the CEO of a $50M ARR B2B SaaS company.\nWe're considering spinning up a $500k–$2M AI consultancy arm to serve our top 20 enterprise customers.\n\nhow would you pressure-test this idea the way you'd do it in a boardroom:\n- What are the top 3 \"make or break\" numbers or signals you'd demand before going further?\n- How would you structure the initial offer so it doesn't just become a side hustle but actually compounds enterprise value?\n- Give me one example of how you'd phrase the offer to a CFO so it feels irresistible and high-ROI."
         ];
     }
 
     protected function runTest(string $variationsPath, string $variation, string $testPrompt, int $promptIndex, bool $antiAiStyle = false): array
     {
+        // Get advisor from command argument
+        $advisor = $this->argument('advisor');
+
+        // Convert slug to filename format (e.g., alex-hormozi -> AlexHormozi)
+        $advisorFilename = collect(explode('-', $advisor))
+            ->map(fn($part) => ucfirst($part))
+            ->implode('');
+
         // Load PI and PK files
-        $piPath = "{$variationsPath}/{$variation}/AlexBogusky_PI.md";
-        $pkPath = "{$variationsPath}/{$variation}/AlexBogusky_PK.md";
+        $piPath = "{$variationsPath}/{$variation}/{$advisorFilename}_PI.md";
+        $pkPath = "{$variationsPath}/{$variation}/{$advisorFilename}_PK.md";
 
         if (!File::exists($piPath) || !File::exists($pkPath)) {
-            throw new \Exception("PI or PK file missing for {$variation}");
+            throw new \Exception("PI or PK file missing for {$variation} (looking for {$advisorFilename}_PI/PK.md)");
         }
 
         $piContent = File::get($piPath);
@@ -231,5 +299,24 @@ PROMPT;
         }
 
         return $basePrompt;
+    }
+
+    /**
+     * Display variation context to make it clear what's being tested
+     */
+    protected function displayVariationContext(): void
+    {
+        $this->line("");
+        $this->comment("📋 VARIATION CONTEXT: Each variation uses DIFFERENT PI instructions with IDENTICAL PK:");
+        $this->table(
+            ['Variation', 'Hypothesis', 'Key Difference'],
+            [
+                ['Control', 'Comprehensive = Quality', 'Full 89-line framework with all best practices'],
+                ['A', 'Word Limits = Density', 'Invisible constraints: ≤25/75/50 words per section'],
+                ['B', 'Identity = Voice', 'Minimal structure, strong voice anchor only'],
+                ['C', 'Boundaries + Brevity', '2-sentence limits with constitutional AI rules'],
+            ]
+        );
+        $this->line("");
     }
 }
