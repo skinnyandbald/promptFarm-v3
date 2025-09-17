@@ -1,0 +1,329 @@
+# PromptFarm v3 - Laravel AI Advisor Generation Platform
+
+## Executive Summary
+PromptFarm v3 is a sophisticated Laravel 12 application for generating authentic AI advisors with distinct voices. The system emphasizes voice authenticity over generic AI responses through constitutional AI constraints, anti-AI style guides, and comprehensive A/B/C testing frameworks.
+
+## Core Architecture Goals
+
+### Primary Objectives
+- Generate AI advisors that maintain authentic, distinct voices
+- Enforce anti-AI patterns to prevent generic chatbot responses
+- Provide quality scoring and validation pipelines
+- Enable systematic A/B/C testing for prompt optimization
+- Support both standalone and player-context-aware generation
+
+### Design Principles
+- Configuration-driven architecture (models, thresholds, styles)
+- Async job processing with real-time monitoring
+- Template-based prompt generation with Mustache syntax
+- Multi-stage quality validation with configurable gates
+- Evidence-based prompt engineering (Constitutional AI, CoT, few-shot)
+
+## Service Layer Components
+
+### AdvisorGenerationService
+**Purpose**: Core orchestrator for PI/PK generation with quality validation
+```php
+generateAdvisor($advisorData, ?callable $progressCallback, bool $exportFiles, ?int $jobId): array
+generateBatch(array $advisorsData, bool $exportFiles): array
+loadAdvisor(string $advisorName): array
+listAdvisors(): array
+deleteAdvisor(string $advisorName): bool
+```
+
+### LLMService
+**Purpose**: LLM API abstraction with OpenRouter integration
+```php
+generateText(string $prompt, array $options): string
+generateCompletion(string $context, string $instruction, array $options): string
+generateTextWithOpenRouter(string $prompt, array $options): string
+isDeepResearchModel(string $model): bool
+```
+
+### AdvisorConfigService
+**Purpose**: Configuration mapping and template variable generation
+```php
+allAdvisors(): array
+getAdvisorConfig(string $slug): array
+mapVariables(array $config): array
+```
+
+### TemplateService
+**Purpose**: Template processing with variable substitution
+```php
+loadTemplate(string $name, ?string $version): string
+substituteVariables(string $template, array $variables): string
+validateTemplate(string $template, array $requiredVariables): array
+extractVariables(string $template): array
+loadAndProcess(string $name, array $variables, ?string $version): string
+```
+
+### StyleGuideService
+**Purpose**: Anti-AI pattern enforcement (85+ forbidden phrases)
+```php
+generateSystemPromptConstraints(): string
+analyzeText(string $text): array
+isEnabled(): bool
+getViolationThreshold(): int
+generateFeedback(array $analysis): string
+```
+
+### AdvisorQualityService
+**Purpose**: Content quality scoring and validation
+```php
+scorePI(string $content): array
+scorePK(string $content): array
+validatePIStructure(string $content): array
+validatePKStructure(string $content): array
+calculateQualityScore(array $piScore, array $pkScore): array
+```
+
+### SimpleQualityService
+**Purpose**: External quality measurement and A/B testing
+```php
+scoreGeneratedAdvisor(string $piContent, string $pkContent): array
+performPeriodicSampling(): array
+runPromptABTest(string $promptA, string $promptB, Advisor $advisor): array
+getCurrentAverageScore(): ?float
+collectFeedback(int $advisorId, int $rating, ?string $feedback): void
+```
+
+## Data Models
+
+### Advisor
+```php
+Properties: name, slug, full_name, known_for, era, style, industry, advisor_type
+Relations: hasMany(AdvisorPosition), hasMany(AdvisorGenerationJob)
+Methods: getConfigArray(), scopeBySlug()
+```
+
+### AdvisorGenerationJob
+```php
+Properties: advisor_id, status, progress, pi_content, pk_content, quality_report
+Constants: STATUS_PENDING, STATUS_PROCESSING, STATUS_COMPLETED, STATUS_FAILED
+Methods: markAsProcessing(), markAsCompleted(), updateProgress()
+```
+
+### AdvisorPosition
+```php
+Properties: advisor_slug, researched_positions, research_model, metadata
+Relations: belongsTo(Advisor)
+```
+
+### PlayerContext
+```php
+Properties: user_id, background_story, goals, communication_style, detail_level
+Constants: COMMUNICATION_STYLES, DETAIL_LEVELS, EXAMPLE_PREFERENCES
+Methods: hasExports(), getSummary(), scopeActive()
+```
+
+## API Controller
+
+### AdvisorGenerationController
+```php
+POST startGeneration(advisor_slug) -> {job_id, status, polling_url}
+GET  getStatus(jobId) -> {status, progress, results}
+GET  getResult(jobId) -> {pi_content, pk_content, quality_report}
+GET  listJobs(?advisor_slug, ?status) -> {paginated_jobs}
+DELETE cancelJob(jobId) -> {success}
+```
+
+## Console Commands
+
+### Generation Commands
+```bash
+advisor:generate {name?} {--all} {--poll} {--export-files}  # Main generation
+advisor:research {advisor?} {--force} {--sync}              # Position research
+```
+
+### Testing Commands
+```bash
+pi:compare-test {advisor} {--variations=all} {--anti-ai-style=off}  # A/B/C testing
+pi:score-variations {--batch=latest} {--generate-recommendations}   # Score variations
+pi:generate-variations {advisor}                                    # Create test variations
+```
+
+### Analysis Commands
+```bash
+advisor:analyze {type} {--advisor=} {--metric=} {--output=table}   # Historical analysis
+advisor:debug-prompts {--model=}                                   # Debug formalization
+horizon:status {--detailed} {--jobs}                              # Queue monitoring
+```
+
+## Configuration Structure
+
+### ai-models.php
+- Primary: Grok-3 via OpenRouter
+- Purpose-specific models for PI enhancement, PK generation, fact-checking
+- Temperature: 0.1 (fact-checking) to 0.8 (PK generation)
+- Capability tracking: JSON mode, system messages, reasoning
+
+### advisors.php
+- Stage 1: Standalone generation with voice calibration
+- Stage 2: Player-context integration
+- Quality thresholds: 60 (min), 80 (good), 85 (excellent)
+- PI/PK weighting: 40%/60%
+
+### style-guide.php
+- 85+ forbidden AI patterns ("cutting-edge", "I'd be happy to")
+- Structure rules: No numbered lists, max 25 words/sentence
+- Scoring: -10 forbidden, -3 warnings, +5 authenticity
+
+## Template System
+
+### PI Template (meta_pi_template.md)
+- Constitutional AI constraints (Anthropic 2022-2024)
+- First-person enforcement
+- Dynamic player context injection
+- Forbidden phrase list integration
+
+### PK Template (meta_pk_template.md)
+- Voice DNA capture
+- Useful Tension Protocol
+- Chain-of-thought prompting
+- Few-shot priming examples
+- Retrieval-augmented context
+
+## System Architecture Map
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        WEB REQUEST                          │
+└────────────────────┬───────────────────────────────────────┘
+                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│            AdvisorGenerationController                      │
+│  • startGeneration() → dispatches job                       │
+│  • getStatus() → polls job progress                         │
+└────────────────────┬───────────────────────────────────────┘
+                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    QUEUE/JOBS                               │
+│  ┌────────────────────────┐  ┌────────────────────────┐    │
+│  │ResearchAdvisorPositions│→ │  GenerateAdvisorJob    │    │
+│  └────────────────────────┘  └────────────────────────┘    │
+└────────────────────┬───────────────────────────────────────┘
+                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│              AdvisorGenerationService                       │
+│  • Orchestrates entire generation pipeline                  │
+│  • Manages progress callbacks                               │
+└──────┬──────────┬──────────┬──────────┬───────────────────┘
+       ▼          ▼          ▼          ▼
+┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+│ConfigSvc │ │Template  │ │  LLM     │ │Quality   │
+│          │ │Service   │ │Service   │ │Service   │
+│•mapVars  │ │•load     │ │•generate │ │•scorePI  │
+│•getConf  │ │•process  │ │•OpenRtr  │ │•scorePK  │
+└──────────┘ └──────────┘ └──────────┘ └──────────┘
+       ▼          ▼          ▼          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   VALIDATION LAYER                          │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐       │
+│  │StyleGuide    │ │Compliance    │ │AIEmbodiment  │       │
+│  │Service       │ │Validator     │ │Scorer        │       │
+│  └──────────────┘ └──────────────┘ └──────────────┘       │
+└─────────────────────────────────────────────────────────────┘
+                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    DATA MODELS                              │
+│  • Advisor (core entity)                                    │
+│  • AdvisorGenerationJob (tracking)                          │
+│  • AdvisorPosition (research cache)                         │
+│  • PlayerContext (personalization)                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Code Style Guide
+
+### Laravel Conventions
+- PHP 8.3 constructor property promotion
+- Explicit return type declarations
+- Eloquent relationships with type hints
+- Form Request classes for validation (never inline)
+- Queued jobs with ShouldQueue interface
+- Config access via `config()` not `env()`
+
+### Testing Approach
+- Feature tests > Unit tests
+- Factory-based model creation
+- No mock services (real integrations)
+- Verbose output for debugging
+- Test-driven validation development
+
+### Anti-Patterns Enforced
+- No generic AI phrases ("cutting-edge", "game-changer")
+- No numbered lists or excessive bullet points
+- No "I'd be happy to" servile language
+- Maximum 25 words per sentence
+- First-person voice enforcement
+
+## Data Format Specifications
+
+### Advisor Configuration
+```json
+{
+  "name": "String",
+  "slug": "kebab-case",
+  "advisor_type": "executive|technical|creative",
+  "primary_objective": "String",
+  "communication_style": {
+    "description": "String",
+    "key_phrases": ["array", "of", "phrases"]
+  }
+}
+```
+
+### Quality Report Structure
+```json
+{
+  "pi_score": {
+    "structure": 85,
+    "placeholders": 100,
+    "depth": 75,
+    "overall": 80
+  },
+  "pk_score": {
+    "structure": 90,
+    "content": 85,
+    "overall": 87
+  },
+  "combined_score": 84,
+  "passed": true
+}
+```
+
+### Job Status Response
+```json
+{
+  "job_id": 123,
+  "status": "processing",
+  "progress": 65,
+  "current_step": "Generating PI content",
+  "quality_report": null,
+  "error_message": null
+}
+```
+
+## Architecture Conclusions
+
+### Strengths
+1. **Voice-First Design**: Anti-AI patterns prevent generic responses
+2. **Quality Gates**: Multi-stage validation ensures output quality
+3. **Configuration-Driven**: Easy model/threshold adjustments without code changes
+4. **Async Processing**: Scalable job queue with real-time monitoring
+5. **Testing Framework**: Systematic A/B/C optimization capabilities
+
+### Technical Decisions
+1. **Laravel 12**: Modern streamlined structure, auto-discovery
+2. **OpenRouter**: Multi-model access through single API
+3. **Horizon**: Redis-backed queue monitoring
+4. **Mustache Templates**: Simple, proven variable substitution
+5. **Constitutional AI**: Evidence-based prompt engineering
+
+### Future Considerations
+1. Template versioning system partially implemented
+2. Player context integration ready for Stage 2
+3. Feedback collection system in SimpleQualityService
+4. Periodic sampling for quality monitoring
+5. Model capability tracking for feature compatibility
